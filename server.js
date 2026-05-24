@@ -1,3 +1,43 @@
+# SF Bay Fishing Backend
+
+A lightweight API that provides real-time tide, marine weather, and fishing report data for the SF Bay Area fishing dashboard.
+
+## Endpoints
+
+- `GET /health` — health check
+- `GET /conditions` — NOAA tides + NWS marine forecast
+- `GET /reports?species=salmon&location=ocean` — fishing report search results
+- `GET /all?species=salmon&location=ocean` — all data in one call
+
+## Environment Variables
+
+Set these in Railway dashboard under Variables:
+
+| Variable | Description |
+|---|---|
+| `BRAVE_API_KEY` | Brave Search API key (free tier at brave.com/search/api) |
+
+## Species options
+`salmon`, `halibut`, `rockfish`, `seabass`, `crab`
+
+## Location options
+`ocean`, `bay`
+
+{
+  "name": "sf-fishing-backend",
+  "version": "1.0.0",
+  "description": "SF Bay Area fishing conditions API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "cors": "^2.8.5"
+  }
+}
+
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
@@ -8,7 +48,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function formatTime(t) {
   const [hStr, mStr] = t.split(':');
   const h = parseInt(hStr), m = parseInt(mStr);
@@ -27,27 +66,22 @@ function excerpt(text, maxLen = 200) {
   return clean.length > maxLen ? clean.slice(0, maxLen) + '…' : clean;
 }
 
-// ── NOAA Tides ────────────────────────────────────────────────────────────────
 async function fetchTides() {
   const today = new Date();
   const pad = n => String(n).padStart(2, '0');
   const dateStr = `${today.getFullYear()}${pad(today.getMonth()+1)}${pad(today.getDate())}`;
-
   try {
     const [hiloRes, hourlyRes] = await Promise.all([
       fetch(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=sf_fishing&begin_date=${dateStr}&end_date=${dateStr}&datum=MLLW&station=9414290&time_zone=lst_ldt&interval=hilo&units=english&format=json`),
       fetch(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=sf_fishing&begin_date=${dateStr}&end_date=${dateStr}&datum=MLLW&station=9414290&time_zone=lst_ldt&interval=h&units=english&format=json`)
     ]);
-
     const hiloData = await hiloRes.json();
     const hourlyData = await hourlyRes.json();
-
     const events = (hiloData.predictions || []).map(p => ({
       type: p.type === 'H' ? 'High' : 'Low',
       time: formatTime(p.t.split(' ')[1]),
       ft: parseFloat(parseFloat(p.v).toFixed(1))
     }));
-
     const hourly = hourlyData.predictions || [];
     const now = new Date();
     let closest = null, minDiff = Infinity;
@@ -55,22 +89,19 @@ async function fetchTides() {
       const diff = Math.abs(new Date(p.t.replace(' ','T')) - now);
       if (diff < minDiff) { minDiff = diff; closest = p; }
     }
-
     const tideNow = closest ? parseFloat(parseFloat(closest.v).toFixed(1)) : null;
     let tideLabel = '';
     if (closest) {
       const idx = hourly.indexOf(closest);
       if (idx > 0) tideLabel = parseFloat(closest.v) > parseFloat(hourly[idx-1].v) ? 'incoming' : 'outgoing';
     }
-
     return { events, tide_now_ft: tideNow, tide_now_label: tideLabel };
   } catch (e) {
-    console.error('Tide fetch error:', e.message);
+    console.error('Tide error:', e.message);
     return { events: [], tide_now_ft: null, tide_now_label: '' };
   }
 }
 
-// ── NWS Marine Forecast ───────────────────────────────────────────────────────
 async function fetchWeather() {
   try {
     const res = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', {
@@ -79,7 +110,6 @@ async function fetchWeather() {
     const data = await res.json();
     const periods = data.properties?.periods || [];
     let windKts = null, windDir = null, swellFt = null, summary = '';
-
     for (const period of periods) {
       const txt = period.detailedForecast || period.shortForecast || '';
       if (windKts === null) {
@@ -95,67 +125,15 @@ async function fetchWeather() {
       if (!summary && period.name) summary = `${period.name}: ${txt.slice(0,220)}`;
       if (windKts !== null && swellFt !== null) break;
     }
-
     return { wind_kts: windKts, wind_dir: windDir, swell_ft: swellFt, forecast_summary: summary };
   } catch (e) {
-    console.error('Weather fetch error:', e.message);
+    console.error('Weather error:', e.message);
     return { wind_kts: null, wind_dir: null, swell_ft: null, forecast_summary: '' };
   }
 }
 
-// ── Fishing Reports — free public scraping ────────────────────────────────────
-async function fetchReports(species, location) {
-  const today = new Date();
-  const month = today.toLocaleString('en-US', { month: 'long' });
-  const year = today.getFullYear();
+async function fetchReports(species) {
   const results = [];
-
-  // 1. CDFW Ocean Sport Fish Bulletin
-  try {
-    const res = await fetch('https://wildlife.ca.gov/Fishing/Ocean/Sport-Fish-Bulletins', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FishingApp/1.0)' }
-    });
-    const html = await res.text();
-    const match = html.match(/salmon|halibut|rockfish|dungeness/gi);
-    if (match) {
-      const snip = excerpt(html.slice(html.toLowerCase().indexOf(match[0].toLowerCase()) - 50, html.toLowerCase().indexOf(match[0].toLowerCase()) + 300));
-      if (snip) results.push({ source: 'CDFW Sport Fish Bulletin', snippet: snip, url: 'https://wildlife.ca.gov/Fishing/Ocean/Sport-Fish-Bulletins' });
-    }
-  } catch(e) { console.error('CDFW scrape:', e.message); }
-
-  // 2. BD Outdoors SF Bay report RSS
-  try {
-    const keyword = species === 'crab' ? 'dungeness' : species === 'seabass' ? 'white+seabass' : species;
-    const res = await fetch(`https://www.bdoutdoors.com/forums/search/?q=${keyword}+san+francisco&o=date&type=post`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FishingApp/1.0)' }
-    });
-    const html = await res.text();
-    const titleMatches = [...html.matchAll(/class="title[^"]*"[^>]*>([\s\S]{0,300}?)<\/[ah]/gi)];
-    for (const m of titleMatches.slice(0,3)) {
-      const snip = excerpt(m[1]);
-      if (snip && snip.length > 20) {
-        results.push({ source: 'BD Outdoors', snippet: snip, url: 'https://www.bdoutdoors.com/forums/' });
-        break;
-      }
-    }
-  } catch(e) { console.error('BD scrape:', e.message); }
-
-  // 3. CDFW Dungeness crab status (if crab)
-  if (species === 'crab') {
-    try {
-      const res = await fetch('https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness', {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FishingApp/1.0)' }
-      });
-      const html = await res.text();
-      const bodyMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-      if (bodyMatch) {
-        const snip = excerpt(bodyMatch[1], 400);
-        if (snip) results.push({ source: 'CDFW Dungeness Crab', snippet: snip, url: 'https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness' });
-      }
-    } catch(e) { console.error('Crab scrape:', e.message); }
-  }
-
-  // 4. Wacky Jacky report page (salmon/halibut)
   if (['salmon','halibut'].includes(species)) {
     try {
       const res = await fetch('http://www.wackyjacky.com/reports.html', {
@@ -164,10 +142,8 @@ async function fetchReports(species, location) {
       const html = await res.text();
       const snip = excerpt(html, 400);
       if (snip && snip.length > 30) results.push({ source: 'Wacky Jacky', snippet: snip, url: 'http://www.wackyjacky.com/reports.html' });
-    } catch(e) { console.error('Wacky Jacky scrape:', e.message); }
+    } catch(e) { console.error('Wacky Jacky:', e.message); }
   }
-
-  // 5. Huli Cat report page
   if (['salmon','halibut','rockfish'].includes(species)) {
     try {
       const res = await fetch('https://www.hulicat.com/fishing-reports/', {
@@ -177,15 +153,23 @@ async function fetchReports(species, location) {
       const bodyMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
       const snip = excerpt(bodyMatch ? bodyMatch[1] : html, 350);
       if (snip && snip.length > 30) results.push({ source: 'Huli Cat', snippet: snip, url: 'https://www.hulicat.com/fishing-reports/' });
-    } catch(e) { console.error('Huli Cat scrape:', e.message); }
+    } catch(e) { console.error('Huli Cat:', e.message); }
   }
-
+  if (species === 'crab') {
+    try {
+      const res = await fetch('https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FishingApp/1.0)' }
+      });
+      const html = await res.text();
+      const bodyMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+      if (bodyMatch) results.push({ source: 'CDFW Dungeness Crab', snippet: excerpt(bodyMatch[1], 400), url: 'https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness' });
+    } catch(e) { console.error('CDFW crab:', e.message); }
+  }
   return results.slice(0, 4);
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({ status: 'ok', time: new Date().toISOString(), port: PORT });
 });
 
 app.get('/conditions', async (req, res) => {
@@ -199,9 +183,8 @@ app.get('/conditions', async (req, res) => {
 
 app.get('/reports', async (req, res) => {
   const species = req.query.species || 'salmon';
-  const location = req.query.location || 'ocean';
   try {
-    const reports = await fetchReports(species, location);
+    const reports = await fetchReports(species);
     res.json({ reports, fetched_at: new Date().toISOString() });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -210,17 +193,14 @@ app.get('/reports', async (req, res) => {
 
 app.get('/all', async (req, res) => {
   const species = req.query.species || 'salmon';
-  const location = req.query.location || 'ocean';
   try {
-    const [tides, weather, reports] = await Promise.all([
-      fetchTides(),
-      fetchWeather(),
-      fetchReports(species, location)
-    ]);
+    const [tides, weather, reports] = await Promise.all([fetchTides(), fetchWeather(), fetchReports(species)]);
     res.json({ ...tides, ...weather, reports, fetched_at: new Date().toISOString() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.listen(PORT, () => console.log(`SF Fishing API running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`SF Fishing API running on 0.0.0.0:${PORT}`);
+});
