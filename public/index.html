@@ -110,6 +110,16 @@ a{color:#1565c0;}
 <div class="sc"><div class="stitle">📍 Known spots</div><div id="spots"></div></div>
 <div class="sc"><div class="stitle">📡 Live fishing intel</div><div id="reports"><span class="sp"></span> Fetching reports...</div></div>
 
+<div class="sc" id="briefing-section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div class="stitle" style="margin-bottom:0;">🧠 Today's fishing briefing</div>
+    <button id="briefing-btn" onclick="getBriefing()" style="margin-top:0;font-size:13px;padding:6px 14px;">Get briefing</button>
+  </div>
+  <div id="briefing-content" style="font-size:13px;color:#888;line-height:1.7;">
+    Hit "Get briefing" for an AI-generated fishing recommendation based on today's live conditions, current reports, and local knowledge of SF Bay salmon migration patterns.
+  </div>
+</div>
+
 <div class="sc">
   <div class="stitle">📋 Paste CFC report (optional)</div>
   <div style="font-size:13px;color:#888;">Copy a recent Coastside Fishing Club report and paste it here for additional intel.</div>
@@ -379,6 +389,49 @@ function renderCurrents(cond) {
     else if (e.type === 'Flood') note = 'bar flatter, points rougher';
     return '<div class="wr"><span class="bdg ' + cls + '">' + e.type + '</span><span style="font-weight:500">' + e.time + '</span><span style="color:#888;font-size:13px">' + e.speed + ' kts</span><span style="color:#888;font-size:12px">' + note + '</span></div>';
   }).join('');
+}
+
+function formatBriefing(text) {
+  // Convert markdown bold headers to styled HTML
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/
+
+/g, '</p><p>')
+    .replace(/
+/g, '<br>')
+    .replace(/^/, '<p>')
+    .replace(/$/, '</p>');
+}
+
+async function getBriefing() {
+  const btn = document.getElementById('briefing-btn');
+  const content = document.getElementById('briefing-content');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  content.innerHTML = '<span class="sp"></span> Pulling live conditions and recent reports — this takes about 15 seconds...';
+
+  try {
+    const resp = await fetch('/briefing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ species: currentSpecies, location: currentLocation })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      content.innerHTML = '<div class="err-box">Error: ' + data.error + '</div>';
+    } else {
+      const ts = data.generated_at ? new Date(data.generated_at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true }) : '';
+      content.innerHTML =
+        '<div style="font-size:11px;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">Generated ' + ts + ' · ' + currentSpecies + (currentLocation === 'bay' ? ' (Bay)' : ' (Ocean)') + '</div>' +
+        '<div style="line-height:1.8;">' + formatBriefing(data.briefing) + '</div>';
+    }
+  } catch(e) {
+    content.innerHTML = '<div class="err-box">Could not reach server: ' + e.message + '</div>';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Refresh briefing';
 }
 
 async function refreshAll(){

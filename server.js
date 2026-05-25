@@ -256,6 +256,126 @@ app.post('/analyze-cfc', async function(req, res) {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/briefing', async function(req, res) {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'API key not configured. Add ANTHROPIC_API_KEY to Railway variables.' });
+
+  const species = req.body.species || 'salmon';
+  const location = req.body.location || 'ocean';
+
+  // Gather all live data in parallel
+  let conditions, reports;
+  try {
+    [conditions, reports] = await Promise.all([
+      (async () => {
+        const [tides, weather, currents] = await Promise.all([fetchTides(), fetchWeather(), fetchCurrents()]);
+        return Object.assign({}, tides, weather, currents);
+      })(),
+      fetchReports(species)
+    ]);
+  } catch(e) {
+    return res.status(500).json({ error: 'Could not fetch live data: ' + e.message });
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/Los_Angeles' });
+  const month = now.toLocaleString('en-US', { month:'long' });
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
+
+  // Format tide events
+  const tideStr = (conditions.events || []).map(function(e) {
+    return e.type + ' ' + e.time + ' (' + e.ft + ' ft)';
+  }).join(', ') || 'unavailable';
+
+  // Format current events
+  const currentStr = (conditions.current_events || []).map(function(e) {
+    return e.type + ' ' + e.time + ' (' + e.speed + ' kts)';
+  }).join(', ') || 'unavailable';
+
+  // Format reports
+  const reportStr = reports.length
+    ? reports.map(function(r) { return r.source + ': ' + r.snippet; }).join('
+
+')
+    : 'No recent reports available.';
+
+  const prompt = `You are an expert SF Bay Area sport fishing advisor with deep knowledge of Chinook salmon, halibut, rockfish, Dungeness crab, and white seabass fishing in the waters outside the Golden Gate. You know every local spot intimately — the channel buoys, middle grounds, west buoy, Rocky Point, Muir Beach, Duxbury Reef, Potato Patch, Gulf of the Farallones, Pt. Reyes, and the nuances of each.
+
+Today is ${dateStr}, current time ${timeStr} Pacific.
+The angler has a 26-foot Glacier Bay catamaran — a capable, stable boat.
+Go/No-Go thresholds: max 5 ft swell, max 20 kt wind, never in south wind.
+Target species today: ${species}${location === 'bay' ? ' (inside SF Bay)' : ' (ocean, outside Golden Gate)'}.
+
+LIVE CONDITIONS RIGHT NOW:
+- Tide now: ${conditions.tide_now_ft !== null ? conditions.tide_now_ft + ' ft (' + (conditions.tide_now_label||'') + ')' : 'unavailable'}
+- Today's tides: ${tideStr}
+- Current at Golden Gate (NOAA PUG1515): ${conditions.current_now_kts !== null ? conditions.current_now_kts + ' kts ' + (conditions.current_now_dir||'') : 'unavailable'}
+- Today's current events: ${currentStr}
+- Wind: ${conditions.wind_kts !== null ? conditions.wind_kts + ' kts from ' + (conditions.wind_dir||'?') : 'unavailable'}
+- Swell: ${conditions.swell_ft !== null ? conditions.swell_ft + ' ft' : 'unavailable'}
+- NWS forecast: ${conditions.forecast_summary || 'unavailable'}
+
+RECENT FISHING REPORTS:
+${reportStr}
+
+YOUR KNOWLEDGE BASE — apply this to your advice:
+- SF Chinook salmon season 2026 opens June 27 south of Pt. Arena (San Mateo/SF coastline). Currently closed for SF waters. Open south of Pigeon Point.
+- Chinook prefer 52–58°F water. In ${month}, fish are typically ${dayOfYear < 150 ? 'staging offshore, beginning to move toward the coast as water warms' : dayOfYear < 200 ? 'actively feeding near the coast, following bait schools of anchovies' : dayOfYear < 270 ? 'peak season — fish concentrated near structure and bait' : 'late season, fish moving toward river mouths'}.
+- Best bite windows are typically 1–2 hours before and after high tide when bait schools are most active.
+- Strong ebb current at the Gate steepens bar waves — advise timing transit near slack.
+- Channel buoys and middle grounds fish best on incoming tide. Duxbury fishes well in any conditions. Farallones requires calm seas (under 4 ft) but holds bigger fish.
+- For halibut: Potato Patch and Raccoon Strait produce on slack tide around high. Sandy bottom at 20–60 ft. Drift with live bait.
+- For rockfish/lingcod: Farallon Islands rocky bottom, Pt. Bonita reefs. Fish 60–300 ft on hard bottom.
+- For Dungeness crab: always check CDFW for season/domoic acid status before setting pots.
+
+Please provide a fishing briefing in the following structure:
+
+**GO / NO-GO: [GO FISH / CAUTION / NO-GO]**
+One sentence verdict with primary reason.
+
+**CONDITIONS SUMMARY**
+2–3 sentences on today's wind, swell, tides, and current — what they mean practically for getting out and fishing.
+
+**BEST WINDOWS TODAY**
+Specific time windows (e.g. "6:30–9:00am") with reasoning based on tide, current, and light conditions. Be specific.
+
+**WHERE TO FISH**
+Top 2–3 spot recommendations with reasoning. Reference specific local spot names. Explain why each spot makes sense today given conditions and recent reports.
+
+**WHAT TO USE**
+Specific technique and bait recommendations based on current reports and conditions.
+
+**INTEL FROM RECENT REPORTS**
+2–3 sentences synthesizing what the charter boats and fishing reports are saying this week. Be specific about locations and fish counts if available.
+
+**OUTLOOK**
+1–2 sentences on whether conditions improve or worsen in the next 2–3 days, and whether it's worth waiting.
+
+Be direct, specific, and practical. Use local spot names. Don't hedge excessively. This is advice from an experienced local guide, not a liability disclaimer.`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1200,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const d = await resp.json();
+    if (d.error) return res.status(500).json({ error: d.error.message });
+    const text = (d.content && d.content[0] && d.content[0].text) ? d.content[0].text : 'Could not generate briefing.';
+    res.json({ briefing: text, generated_at: new Date().toISOString() });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, '0.0.0.0', function() {
   console.log('SF Fishing API running on port ' + PORT);
 });
