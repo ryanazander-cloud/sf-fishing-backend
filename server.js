@@ -197,7 +197,13 @@ async function fetchReports(species) {
 }
 
 app.get('/health', function(req, res) {
-  res.json({ status: 'ok', time: new Date().toISOString(), port: PORT });
+  res.json({ 
+    status: 'ok', 
+    time: new Date().toISOString(), 
+    port: PORT,
+    has_api_key: !!process.env.ANTHROPIC_API_KEY,
+    key_prefix: process.env.ANTHROPIC_API_KEY ? process.env.ANTHROPIC_API_KEY.slice(0,10) + '...' : 'missing'
+  });
 });
 
 app.get('/conditions', async function(req, res) {
