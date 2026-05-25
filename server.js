@@ -70,53 +70,38 @@ async function fetchTides() {
 
 async function fetchWeather() {
   try {
-    // Try point forecast first for better wind/swell data (outside Golden Gate)
-    const pointRes = await fetch('https://api.weather.gov/points/37.8,-122.6', {
+    // PZZ540 = Point Arena to Pt Reyes 10NM — covers ocean waters outside Golden Gate with full swell data
+    // Use raw text forecast which is much easier to parse than JSON API
+    const res = await fetch('https://forecast.weather.gov/shmrn.php?mz=PZZ540', {
       headers: { 'User-Agent': 'SFBayFishingApp/1.0 (fishing@example.com)' }
     });
-    const pointData = await pointRes.json();
-    const forecastUrl = pointData.properties && pointData.properties.forecast;
-
-    // Also fetch zone forecast
-    const zoneRes = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', {
-      headers: { 'User-Agent': 'SFBayFishingApp/1.0 (fishing@example.com)' }
-    });
-    const zoneData = await zoneRes.json();
-    const periods = (zoneData.properties && zoneData.properties.periods) ? zoneData.properties.periods : [];
+    const html = await res.text();
+    const text = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
 
     let windKts = null, windDir = null, swellFt = null, summary = '';
 
-    for (const period of periods) {
-      const txt = (period.detailedForecast || period.shortForecast || '').toLowerCase();
-      const txtOrig = period.detailedForecast || period.shortForecast || '';
+    // Extract TODAY section
+    const todayMatch = text.match(/TODAY[^.]*?(?:\.|$)/i);
+    const tonightMatch = text.match(/TONIGHT[^.]*?(?:\.|$)/i);
+    const firstPeriod = todayMatch ? todayMatch[0] : (tonightMatch ? tonightMatch[0] : text.slice(0,300));
 
-      if (windKts === null) {
-        // Match "10 to 20 knots", "15 knots", "10-20 kt"
-        const wm = txtOrig.match(/(\d+)\s*(?:to\s*(\d+))?\s*(?:knots?|kts?)\b/i);
-        if (wm) windKts = wm[2] ? Math.round((parseInt(wm[1])+parseInt(wm[2]))/2) : parseInt(wm[1]);
-        // Wind direction
-        const dm = txtOrig.match(/\b(north|south|east|west|NE|NW|SE|SW|NNE|NNW|SSE|SSW|ENE|ESE|WNW|WSW|N|S|E|W)\b/i);
-        if (dm) {
-          const dirMap = {north:'N',south:'S',east:'E',west:'W'};
-          windDir = dirMap[dm[1].toLowerCase()] || dm[1].toUpperCase();
-        }
-      }
-
-      if (swellFt === null) {
-        // Match wave heights: "combined seas 4 to 6 feet", "waves 3 feet", "4 to 6 ft"
-        const sm = txtOrig.match(/(?:seas?|waves?|swell)\s+(?:of\s+)?(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
-        if (sm) {
-          swellFt = sm[2] ? Math.round((parseFloat(sm[1])+parseFloat(sm[2]))/2*10)/10 : parseFloat(sm[1]);
-        } else {
-          // Fallback: any feet measurement
-          const sm2 = txtOrig.match(/(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
-          if (sm2) swellFt = sm2[2] ? Math.round((parseFloat(sm2[1])+parseFloat(sm2[2]))/2*10)/10 : parseFloat(sm2[1]);
-        }
-      }
-
-      if (!summary && period.name) summary = period.name + ': ' + txtOrig.slice(0,240);
-      if (windKts !== null && windDir !== null && swellFt !== null) break;
+    // Wind speed: "NW wind 10 to 15 kt" or "wind 15 knots"
+    const wm = firstPeriod.match(/(N|NE|NNE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)\s+wind\s+(\d+)\s*(?:to\s*(\d+))?\s*(?:kt|knots?)/i);
+    if (wm) {
+      windDir = wm[1].toUpperCase();
+      windKts = wm[3] ? Math.round((parseInt(wm[2])+parseInt(wm[3]))/2) : parseInt(wm[2]);
+    } else {
+      const wm2 = text.match(/(N|NE|NNE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)\s+wind\s+(\d+)\s*(?:to\s*(\d+))?\s*(?:kt|knots?)/i);
+      if (wm2) { windDir = wm2[1].toUpperCase(); windKts = wm2[3] ? Math.round((parseInt(wm2[2])+parseInt(wm2[3]))/2) : parseInt(wm2[2]); }
     }
+
+    // Seas/swell: "Seas 4 to 6 ft" or "Seas 5 ft"
+    const sm = text.match(/Seas?\s+(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
+    if (sm) swellFt = sm[2] ? Math.round((parseFloat(sm[1])+parseFloat(sm[2]))/2*10)/10 : parseFloat(sm[1]);
+
+    // Summary: first 250 chars of the forecast text
+    const forecastMatch = text.match(/TODAY.{0,250}/i);
+    summary = forecastMatch ? forecastMatch[0].trim() : text.slice(0,250).trim();
 
     return { wind_kts: windKts, wind_dir: windDir, swell_ft: swellFt, forecast_summary: summary };
   } catch (e) {
