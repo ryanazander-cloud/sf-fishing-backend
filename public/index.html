@@ -11,7 +11,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sc{background:#fff;border:0.5px solid rgba(0,0,0,0.12);border-radius:12px;padding:1rem 1.25rem;margin-bottom:12px;}
 @media(prefers-color-scheme:dark){.sc{background:#2a2a2a;border-color:rgba(255,255,255,0.1);}}
 .stitle{font-size:12px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;}
-.mg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:12px;}
 .mc{background:#f0efe8;border-radius:8px;padding:.75rem 1rem;}
 @media(prefers-color-scheme:dark){.mc{background:#333;}}
 .mv{font-size:20px;font-weight:500;}
@@ -87,6 +87,7 @@ a{color:#1565c0;}
   <div class="mc"><div class="mv" id="m-wdir">—</div><div class="ml">🧭 Direction</div></div>
   <div class="mc"><div class="mv" id="m-swell">—</div><div class="ml">🌊 Swell</div></div>
   <div class="mc"><div class="mv" id="m-tide">—</div><div class="ml">↕ Tide now</div></div>
+  <div class="mc"><div class="mv" id="m-current">—</div><div class="ml">🌊 Current</div></div>
 </div>
 
 <div class="sc"><div class="stitle">Species info</div><div id="reg-content"></div></div>
@@ -101,6 +102,11 @@ a{color:#1565c0;}
   <div id="tide-summary" style="font-size:12px;color:#888;margin-top:8px;line-height:1.6;"></div>
 </div>
 
+<div class="sc">
+  <div class="stitle">🌊 GG Bridge current today</div>
+  <div id="current-events"><span class="sp"></span> Loading...</div>
+  <div id="current-warning" style="display:none;margin-top:8px;"></div>
+</div>
 <div class="sc"><div class="stitle">📍 Known spots</div><div id="spots"></div></div>
 <div class="sc"><div class="stitle">📡 Live fishing intel</div><div id="reports"><span class="sp"></span> Fetching reports...</div></div>
 
@@ -300,6 +306,44 @@ async function analyzeCFC(){
   }catch(e){document.getElementById('reports').innerHTML=`<div class="err-box">Error: ${e.message}</div>`;}
 }
 
+function renderCurrents(cond) {
+  // Current now metric
+  const nowEl = document.getElementById('m-current');
+  if (cond.current_now_kts !== null && cond.current_now_kts !== undefined) {
+    const dir = cond.current_now_dir || '';
+    const dirLabel = dir === 'ebb' ? ' ebb' : dir === 'flood' ? ' flood' : dir === 'slack' ? ' slack' : '';
+    nowEl.textContent = cond.current_now_kts + ' kts' + dirLabel;
+    // Warn if strong ebb
+    const warn = document.getElementById('current-warning');
+    if (dir === 'ebb' && cond.current_now_kts >= 3.0) {
+      warn.style.display = 'block';
+      warn.className = 'reg-box';
+      warn.innerHTML = '⚠️ Strong ebb current at Golden Gate (' + cond.current_now_kts + ' kts). Use caution transiting the bridge — stay in main channel and time your crossing near slack.';
+    } else if (dir === 'ebb' && cond.current_now_kts >= 1.5) {
+      warn.style.display = 'block';
+      warn.className = 'tip-box';
+      warn.innerHTML = '💡 Ebb current running at ' + cond.current_now_kts + ' kts at the Gate. Allow extra time outbound.';
+    } else {
+      warn.style.display = 'none';
+    }
+  } else {
+    nowEl.textContent = '—';
+  }
+
+  // Current events
+  const eventsEl = document.getElementById('current-events');
+  const events = cond.current_events || [];
+  if (!events.length) {
+    eventsEl.innerHTML = '<span style="color:#888">Current data unavailable</span>';
+    return;
+  }
+  eventsEl.innerHTML = events.map(function(e) {
+    const cls = e.type === 'Slack' ? 'bw' : e.type === 'Flood' ? 'bg' : 'br';
+    const note = e.type === 'Slack' ? 'good transit window' : e.type === 'Ebb' ? 'outgoing — use caution' : 'incoming — easier outbound';
+    return '<div class="wr"><span class="bdg ' + cls + '">' + e.type + '</span><span style="font-weight:500">' + e.time + '</span><span style="color:#888;font-size:13px">' + e.speed + ' kts</span><span style="color:#888;font-size:12px">' + note + '</span></div>';
+  }).join('');
+}
+
 async function refreshAll(){
   document.getElementById('vdate').textContent=todayStr();
   const vb=document.getElementById('vbadge');
@@ -324,6 +368,7 @@ async function refreshAll(){
     document.getElementById('m-tide').textContent=cond.tide_now_ft!=null?(+cond.tide_now_ft).toFixed(1)+' ft'+(cond.tide_now_label?' ('+cond.tide_now_label+')':''):'—';
     if(cond.forecast_summary)document.getElementById('tide-summary').textContent=cond.forecast_summary;
     renderTideChart(cachedTideEvents);
+    renderCurrents(cond);
   }catch(e){
     document.getElementById('vbadge').textContent='Error';
     document.getElementById('vreason').textContent='Could not reach server: '+e.message;

@@ -68,6 +68,58 @@ async function fetchTides() {
   }
 }
 
+async function fetchCurrents() {
+  // NOAA current station PUG1515 = Golden Gate Bridge
+  const today = new Date();
+  const pad = function(n) { return String(n).padStart(2,'0'); };
+  const dateStr = today.getFullYear() + pad(today.getMonth()+1) + pad(today.getDate());
+  try {
+    const [predRes, obsRes] = await Promise.all([
+      fetch('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=currents_predictions&application=sf_fishing&begin_date='+dateStr+'&end_date='+dateStr+'&station=PUG1515&time_zone=lst_ldt&interval=MAX_SLACK&units=english&format=json'),
+      fetch('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=currents&application=sf_fishing&begin_date='+dateStr+'&end_date='+dateStr+'&station=PUG1515&time_zone=lst_ldt&units=english&format=json')
+    ]);
+    const predData = await predRes.json();
+    const obsData = await obsRes.json();
+
+    // Max/slack predictions
+    const events = (predData.current_predictions && predData.current_predictions.cp ? predData.current_predictions.cp : []).map(function(p) {
+      const spd = parseFloat(parseFloat(p.Velocity_Major || p.Speed || 0).toFixed(1));
+      const type = p.Type === 'ebb' ? 'Ebb' : p.Type === 'flood' ? 'Flood' : (p.Type || '');
+      const isSlack = Math.abs(spd) < 0.2 || p.Type === 'slack';
+      return {
+        type: isSlack ? 'Slack' : type,
+        time: formatTime(p.Time.split(' ')[1]),
+        speed: Math.abs(spd)
+      };
+    });
+
+    // Current speed right now from observations
+    let currentNow = null, currentDir = null;
+    const obs = obsData.current_observations || obsData.data || [];
+    if (obs.length) {
+      const now = new Date();
+      let closest = null, minDiff = Infinity;
+      for (const o of obs) {
+        const t = new Date((o.t || o.time || '').replace(' ','T'));
+        const diff = Math.abs(t - now);
+        if (diff < minDiff) { minDiff = diff; closest = o; }
+      }
+      if (closest) {
+        const spd = parseFloat(closest.s || closest.Speed || 0);
+        currentNow = Math.abs(parseFloat(spd.toFixed(1)));
+        // Positive = flood (incoming), negative = ebb (outgoing)
+        const vel = parseFloat(closest.v || closest.Velocity_Major || spd);
+        currentDir = vel > 0 ? 'flood' : vel < 0 ? 'ebb' : 'slack';
+      }
+    }
+
+    return { current_events: events, current_now_kts: currentNow, current_now_dir: currentDir };
+  } catch (e) {
+    console.error('Currents error:', e.message);
+    return { current_events: [], current_now_kts: null, current_now_dir: null };
+  }
+}
+
 async function fetchWeather() {
   try {
     // PZZ540 = Point Arena to Pt Reyes 10NM — covers ocean waters outside Golden Gate with full swell data
@@ -172,8 +224,8 @@ app.get('/health', function(req, res) {
 
 app.get('/conditions', async function(req, res) {
   try {
-    const [tides, weather] = await Promise.all([fetchTides(), fetchWeather()]);
-    res.json(Object.assign({}, tides, weather, { fetched_at: new Date().toISOString() }));
+    const [tides, weather, currents] = await Promise.all([fetchTides(), fetchWeather(), fetchCurrents()]);
+    res.json(Object.assign({}, tides, weather, currents, { fetched_at: new Date().toISOString() }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
