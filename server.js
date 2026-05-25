@@ -19,14 +19,18 @@ function formatTime(t) {
 }
 
 function stripHtml(html) {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html.replace(/<script[\s\S]*?<\/script>/gi,'')
+             .replace(/<style[\s\S]*?<\/style>/gi,'')
+             .replace(/<[^>]+>/g,' ')
+             .replace(/\s+/g,' ')
+             .replace(/&amp;/g,'&').replace(/&nbsp;/g,' ').replace(/&#\d+;/g,'')
+             .trim();
 }
 
 function excerpt(text, maxLen) {
   if (!text) return '';
-  maxLen = maxLen || 200;
-  const clean = stripHtml(text).replace(/&amp;/g,'&').replace(/&nbsp;/g,' ');
-  return clean.length > maxLen ? clean.slice(0, maxLen) + '...' : clean;
+  const clean = stripHtml(text);
+  return clean.length > (maxLen||200) ? clean.slice(0, maxLen||200) + '...' : clean;
 }
 
 async function fetchTides() {
@@ -66,27 +70,54 @@ async function fetchTides() {
 
 async function fetchWeather() {
   try {
-    const res = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', {
+    // Try point forecast first for better wind/swell data (outside Golden Gate)
+    const pointRes = await fetch('https://api.weather.gov/points/37.8,-122.6', {
       headers: { 'User-Agent': 'SFBayFishingApp/1.0 (fishing@example.com)' }
     });
-    const data = await res.json();
-    const periods = (data.properties && data.properties.periods) ? data.properties.periods : [];
+    const pointData = await pointRes.json();
+    const forecastUrl = pointData.properties && pointData.properties.forecast;
+
+    // Also fetch zone forecast
+    const zoneRes = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', {
+      headers: { 'User-Agent': 'SFBayFishingApp/1.0 (fishing@example.com)' }
+    });
+    const zoneData = await zoneRes.json();
+    const periods = (zoneData.properties && zoneData.properties.periods) ? zoneData.properties.periods : [];
+
     let windKts = null, windDir = null, swellFt = null, summary = '';
+
     for (const period of periods) {
-      const txt = period.detailedForecast || period.shortForecast || '';
+      const txt = (period.detailedForecast || period.shortForecast || '').toLowerCase();
+      const txtOrig = period.detailedForecast || period.shortForecast || '';
+
       if (windKts === null) {
-        const wm = txt.match(/(\d+)\s*(?:to\s*(\d+))?\s*knots?/i);
-        const dm = txt.match(/\b(N|NE|NNE|ENE|E|ESE|SE|SSE|S|SSW|SW|WSW|W|WNW|NW|NNW)\b/);
+        // Match "10 to 20 knots", "15 knots", "10-20 kt"
+        const wm = txtOrig.match(/(\d+)\s*(?:to\s*(\d+))?\s*(?:knots?|kts?)\b/i);
         if (wm) windKts = wm[2] ? Math.round((parseInt(wm[1])+parseInt(wm[2]))/2) : parseInt(wm[1]);
-        if (dm) windDir = dm[1];
+        // Wind direction
+        const dm = txtOrig.match(/\b(north|south|east|west|NE|NW|SE|SW|NNE|NNW|SSE|SSW|ENE|ESE|WNW|WSW|N|S|E|W)\b/i);
+        if (dm) {
+          const dirMap = {north:'N',south:'S',east:'E',west:'W'};
+          windDir = dirMap[dm[1].toLowerCase()] || dm[1].toUpperCase();
+        }
       }
+
       if (swellFt === null) {
-        const sm = txt.match(/(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
-        if (sm) swellFt = sm[2] ? Math.round((parseFloat(sm[1])+parseFloat(sm[2]))/2*10)/10 : parseFloat(sm[1]);
+        // Match wave heights: "combined seas 4 to 6 feet", "waves 3 feet", "4 to 6 ft"
+        const sm = txtOrig.match(/(?:seas?|waves?|swell)\s+(?:of\s+)?(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
+        if (sm) {
+          swellFt = sm[2] ? Math.round((parseFloat(sm[1])+parseFloat(sm[2]))/2*10)/10 : parseFloat(sm[1]);
+        } else {
+          // Fallback: any feet measurement
+          const sm2 = txtOrig.match(/(\d+(?:\.\d+)?)\s*(?:to\s*(\d+(?:\.\d+)?))?\s*(?:ft|feet)/i);
+          if (sm2) swellFt = sm2[2] ? Math.round((parseFloat(sm2[1])+parseFloat(sm2[2]))/2*10)/10 : parseFloat(sm2[1]);
+        }
       }
-      if (!summary && period.name) summary = period.name + ': ' + txt.slice(0,220);
-      if (windKts !== null && swellFt !== null) break;
+
+      if (!summary && period.name) summary = period.name + ': ' + txtOrig.slice(0,240);
+      if (windKts !== null && windDir !== null && swellFt !== null) break;
     }
+
     return { wind_kts: windKts, wind_dir: windDir, swell_ft: swellFt, forecast_summary: summary };
   } catch (e) {
     console.error('Weather error:', e.message);
@@ -96,32 +127,58 @@ async function fetchWeather() {
 
 async function fetchReports(species) {
   const results = [];
-  if (species === 'salmon' || species === 'halibut') {
+  const headers = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' };
+
+  // 1. NorCalFishReports saltwater reports — best source for SF Bay charter boats
+  try {
+    const res = await fetch('https://www.norcalfishreports.com/fish_reports/saltwater_reports.php', { headers });
+    const html = await res.text();
+    // Extract recent report snippets
+    const matches = [...html.matchAll(/<div[^>]*class="[^"]*report[^"]*"[^>]*>([\s\S]{50,600}?)<\/div>/gi)];
+    if (matches.length) {
+      const snip = excerpt(matches[0][1], 400);
+      if (snip && snip.length > 30) results.push({ source: 'NorCal Fish Reports', snippet: snip, url: 'https://www.norcalfishreports.com/fish_reports/saltwater_reports.php' });
+    } else {
+      // Fallback: grab body text
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      const snip = bodyMatch ? excerpt(bodyMatch[1], 500) : '';
+      if (snip && snip.length > 50) results.push({ source: 'NorCal Fish Reports', snippet: snip, url: 'https://www.norcalfishreports.com/fish_reports/saltwater_reports.php' });
+    }
+  } catch(e) { console.error('NorCal:', e.message); }
+
+  // 2. NorCalFishReports SF Bay specific
+  if (['salmon','halibut','rockfish'].includes(species)) {
     try {
-      const res = await fetch('http://www.wackyjacky.com/reports.html', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const res = await fetch('https://www.norcalfishreports.com/spots/1233/san-francisco-bay.php', { headers });
       const html = await res.text();
-      const snip = excerpt(html, 400);
-      if (snip && snip.length > 30) results.push({ source: 'Wacky Jacky', snippet: snip, url: 'http://www.wackyjacky.com/reports.html' });
-    } catch(e) { console.error('Wacky Jacky:', e.message); }
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      const snip = bodyMatch ? excerpt(bodyMatch[1], 400) : '';
+      if (snip && snip.length > 50) results.push({ source: 'NorCal Fish Reports — SF Bay', snippet: snip, url: 'https://www.norcalfishreports.com/spots/1233/san-francisco-bay.php' });
+    } catch(e) { console.error('NorCal SF Bay:', e.message); }
   }
-  if (species === 'salmon' || species === 'halibut' || species === 'rockfish') {
-    try {
-      const res = await fetch('https://www.hulicat.com/fishing-reports/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const html = await res.text();
-      const bodyMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-      const snip = excerpt(bodyMatch ? bodyMatch[1] : html, 350);
-      if (snip && snip.length > 30) results.push({ source: 'Huli Cat', snippet: snip, url: 'https://www.hulicat.com/fishing-reports/' });
-    } catch(e) { console.error('Huli Cat:', e.message); }
-  }
+
+  // 3. CDFW crab status
   if (species === 'crab') {
     try {
-      const res = await fetch('https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const res = await fetch('https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness', { headers });
       const html = await res.text();
       const bodyMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
       if (bodyMatch) results.push({ source: 'CDFW Dungeness Crab', snippet: excerpt(bodyMatch[1], 400), url: 'https://wildlife.ca.gov/Fishing/Ocean/Crab/Dungeness' });
     } catch(e) { console.error('CDFW crab:', e.message); }
   }
-  return results.slice(0, 4);
+
+  // 4. Wacky Jacky (correct URL)
+  if (['salmon','halibut'].includes(species)) {
+    try {
+      const res = await fetch('https://www.wackyjackysportfishing.com/', { headers });
+      const html = await res.text();
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      const snip = bodyMatch ? excerpt(bodyMatch[1], 350) : '';
+      if (snip && snip.length > 30) results.push({ source: 'Wacky Jacky Sport Fishing', snippet: snip, url: 'https://www.wackyjackysportfishing.com/' });
+    } catch(e) { console.error('Wacky Jacky:', e.message); }
+  }
+
+  return results.filter(r => r.snippet && r.snippet.length > 20).slice(0, 4);
 }
 
 app.get('/health', function(req, res) {
@@ -146,9 +203,10 @@ app.get('/reports', async function(req, res) {
 app.post('/analyze-cfc', async function(req, res) {
   const { species, location, report } = req.body;
   if (!report) return res.status(400).json({ error: 'No report provided' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'API key not configured' });
   const spotCtx = species === 'Salmon' ? ' Key local spots: channel buoys, west buoy, middle grounds, Rocky Point, Muir Beach, Duxbury Reef, Pacifica, Gulf of the Farallones, Pt. Reyes.' : '';
   const locCtx = location === 'bay' ? ' Focus on inside-the-Bay catches if mentioned.' : '';
-  const prompt = 'I fish ' + species.toLowerCase() + ' out of the Golden Gate on a 26ft Glacier Bay catamaran. Go/no-go: max 5ft swell, 20kt wind ocean (25kt Bay), never south wind outside.' + spotCtx + locCtx + '\n\nCFC report:\n' + report + '\n\nSummarize in 3-4 sentences: (1) where they\'ve been catching, (2) depth/conditions, (3) bait/technique, (4) recommendation for my next trip. Be direct and practical.';
+  const prompt = 'I fish ' + (species||'salmon').toLowerCase() + ' out of the Golden Gate on a 26ft Glacier Bay catamaran. Go/no-go: max 5ft swell, 20kt wind ocean (25kt Bay), never south wind outside.' + spotCtx + locCtx + '\n\nCFC report:\n' + report + '\n\nSummarize in 3-4 sentences: (1) where they\'ve been catching, (2) depth/conditions, (3) bait/technique, (4) recommendation for my next trip.';
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
