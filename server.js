@@ -1,19 +1,21 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({origin:'*'}));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 function formatTime(t) {
   const [hStr, mStr] = t.split(':');
   const h = parseInt(hStr), m = parseInt(mStr);
   const ampm = h >= 12 ? 'PM' : 'AM';
   const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+  return h12 + ':' + String(m).padStart(2,'0') + ' ' + ampm;
 }
 
 function stripHtml(html) {
@@ -29,11 +31,14 @@ function excerpt(text, maxLen) {
 
 async function fetchTides() {
   const today = new Date();
-  const pad = function(n) { return String(n).padStart(2, '0'); };
+  const pad = function(n) { return String(n).padStart(2,'0'); };
   const dateStr = today.getFullYear() + pad(today.getMonth()+1) + pad(today.getDate());
   try {
-    const hiloRes = await fetch('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=sf_fishing&begin_date=' + dateStr + '&end_date=' + dateStr + '&datum=MLLW&station=9414290&time_zone=lst_ldt&interval=hilo&units=english&format=json');
-    const hourlyRes = await fetch('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=sf_fishing&begin_date=' + dateStr + '&end_date=' + dateStr + '&datum=MLLW&station=9414290&time_zone=lst_ldt&interval=h&units=english&format=json');
+    const base = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?application=sf_fishing&begin_date='+dateStr+'&end_date='+dateStr+'&datum=MLLW&station=9414290&time_zone=lst_ldt&units=english&format=json';
+    const [hiloRes, hourlyRes] = await Promise.all([
+      fetch(base + '&product=predictions&interval=hilo'),
+      fetch(base + '&product=predictions&interval=h')
+    ]);
     const hiloData = await hiloRes.json();
     const hourlyData = await hourlyRes.json();
     const events = (hiloData.predictions || []).map(function(p) {
@@ -61,7 +66,9 @@ async function fetchTides() {
 
 async function fetchWeather() {
   try {
-    const res = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', { headers: { 'User-Agent': 'SFBayFishingApp/1.0' } });
+    const res = await fetch('https://api.weather.gov/zones/forecast/PZZ530/forecast', {
+      headers: { 'User-Agent': 'SFBayFishingApp/1.0 (fishing@example.com)' }
+    });
     const data = await res.json();
     const periods = (data.properties && data.properties.periods) ? data.properties.periods : [];
     let windKts = null, windDir = null, swellFt = null, summary = '';
@@ -123,13 +130,9 @@ app.get('/health', function(req, res) {
 
 app.get('/conditions', async function(req, res) {
   try {
-    const tides = await fetchTides();
-    const weather = await fetchWeather();
-    const result = Object.assign({}, tides, weather, { fetched_at: new Date().toISOString() });
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    const [tides, weather] = await Promise.all([fetchTides(), fetchWeather()]);
+    res.json(Object.assign({}, tides, weather, { fetched_at: new Date().toISOString() }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/reports', async function(req, res) {
@@ -137,22 +140,25 @@ app.get('/reports', async function(req, res) {
   try {
     const reports = await fetchReports(species);
     res.json({ reports: reports, fetched_at: new Date().toISOString() });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/all', async function(req, res) {
-  const species = req.query.species || 'salmon';
+app.post('/analyze-cfc', async function(req, res) {
+  const { species, location, report } = req.body;
+  if (!report) return res.status(400).json({ error: 'No report provided' });
+  const spotCtx = species === 'Salmon' ? ' Key local spots: channel buoys, west buoy, middle grounds, Rocky Point, Muir Beach, Duxbury Reef, Pacifica, Gulf of the Farallones, Pt. Reyes.' : '';
+  const locCtx = location === 'bay' ? ' Focus on inside-the-Bay catches if mentioned.' : '';
+  const prompt = 'I fish ' + species.toLowerCase() + ' out of the Golden Gate on a 26ft Glacier Bay catamaran. Go/no-go: max 5ft swell, 20kt wind ocean (25kt Bay), never south wind outside.' + spotCtx + locCtx + '\n\nCFC report:\n' + report + '\n\nSummarize in 3-4 sentences: (1) where they\'ve been catching, (2) depth/conditions, (3) bait/technique, (4) recommendation for my next trip. Be direct and practical.';
   try {
-    const tides = await fetchTides();
-    const weather = await fetchWeather();
-    const reports = await fetchReports(species);
-    const result = Object.assign({}, tides, weather, { reports: reports, fetched_at: new Date().toISOString() });
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
+    });
+    const d = await resp.json();
+    const text = (d.content && d.content[0] && d.content[0].text) ? d.content[0].text : 'Could not analyze report.';
+    res.json({ result: text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.listen(PORT, '0.0.0.0', function() {
