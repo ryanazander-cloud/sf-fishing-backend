@@ -307,39 +307,76 @@ async function analyzeCFC(){
 }
 
 function renderCurrents(cond) {
-  // Current now metric
   const nowEl = document.getElementById('m-current');
-  if (cond.current_now_kts !== null && cond.current_now_kts !== undefined) {
-    const dir = cond.current_now_dir || '';
+  const warn = document.getElementById('current-warning');
+  const dir = cond.current_now_dir || '';
+  const spd = cond.current_now_kts;
+  const swell = typeof swellHt === 'number' ? swellHt : null;
+
+  // Metric card
+  if (spd !== null && spd !== undefined) {
     const dirLabel = dir === 'ebb' ? ' ebb' : dir === 'flood' ? ' flood' : dir === 'slack' ? ' slack' : '';
-    nowEl.textContent = cond.current_now_kts + ' kts' + dirLabel;
-    // Warn if strong ebb
-    const warn = document.getElementById('current-warning');
-    if (dir === 'ebb' && cond.current_now_kts >= 3.0) {
-      warn.style.display = 'block';
-      warn.className = 'reg-box';
-      warn.innerHTML = '⚠️ Strong ebb current at Golden Gate (' + cond.current_now_kts + ' kts). Use caution transiting the bridge — stay in main channel and time your crossing near slack.';
-    } else if (dir === 'ebb' && cond.current_now_kts >= 1.5) {
-      warn.style.display = 'block';
-      warn.className = 'tip-box';
-      warn.innerHTML = '💡 Ebb current running at ' + cond.current_now_kts + ' kts at the Gate. Allow extra time outbound.';
-    } else {
-      warn.style.display = 'none';
-    }
+    nowEl.textContent = spd + ' kts' + dirLabel;
   } else {
     nowEl.textContent = '—';
   }
 
-  // Current events
+  // Contextual bar advice based on current + swell combo
+  warn.style.display = 'block';
+  const strongEbb = dir === 'ebb' && spd >= 2.5;
+  const modEbb = dir === 'ebb' && spd >= 1.5 && spd < 2.5;
+  const isFlood = dir === 'flood';
+  const isSlack = dir === 'slack' || (spd !== null && spd < 0.3);
+  const swellUp = swell !== null && swell >= 4;
+  const swellBig = swell !== null && swell >= 6;
+
+  let msgs = [];
+
+  if (strongEbb && swellUp) {
+    msgs.push({ cls:'reg-box', text:'⛔ Strong ebb (' + spd + ' kts) + swell ' + (swell||'?') + ' ft — worst combination for the bar. Ebb opposes the swell, steepening waves significantly. Wait for slack or flood before crossing. Stay in the ship channel.' });
+  } else if (strongEbb) {
+    msgs.push({ cls:'reg-box', text:'⚠️ Strong ebb current (' + spd + ' kts) at the Gate. Bar waves will be steeper than forecast. Stay in the ship channel; avoid the South Bar entirely. Consider waiting for slack.' });
+  } else if (modEbb && swellUp) {
+    msgs.push({ cls:'reg-box', text:'⚠️ Moderate ebb (' + spd + ' kts) with ' + (swell||'?') + ' ft swell — expect steeper waves than forecast. Stay in the main ship channel.' });
+  } else if (modEbb) {
+    msgs.push({ cls:'tip-box', text:'💡 Ebb running at ' + spd + ' kts — waves will be somewhat steeper than forecast swell suggests. Stay in ship channel, allow extra time outbound.' });
+  } else if (isFlood && swellBig) {
+    msgs.push({ cls:'tip-box', text:'💡 Flood tide (' + spd + ' kts) flattens bar waves but watch Pt. Lobos and Pt. Bonita — both get rougher on flood. Pass outside Mile Rock at Pt. Lobos. Keep clear of Pt. Bonita "washing machine." ' });
+  } else if (isFlood) {
+    msgs.push({ cls:'tip-box', text:'💡 Flood tide — bar waves flatter than forecast. Watch Pt. Lobos (pass outside Mile Rock) and Pt. Bonita (washing machine effect) — both are rougher on flood.' });
+  } else if (isSlack) {
+    msgs.push({ cls:'tip-box', text:'✅ Near slack water — best time to cross the bar. Waves at their flattest. Use the ship channel or Bonita Channel (Bonita OK up to 10 ft swell).' });
+  }
+
+  // Always-on bar tips based on swell
+  if (swellBig) {
+    msgs.push({ cls:'reg-box', text:'⚠️ Swells ' + (swell||'?') + ' ft — stay in the ship channel. Avoid South Bar (no channel there — dangerous first-generation breakers). Bonita Channel closes above 10 ft.' });
+  } else if (swellUp) {
+    msgs.push({ cls:'tip-box', text:'💡 Ship channel or Bonita Channel (Marin side, 50–60 ft depth). Avoid running south of the ship channel — South Bar has no real channel and breaks unexpectedly.' });
+  }
+
+  // Power loss reminder if going out
+  msgs.push({ cls:'tip-box', text:'📌 Bar reminder: if you lose power on the bar, anchor immediately — north-to-south current will quickly push you across the South Bar. Never cross on large ebb + swell. Square your transom to waves coming back in.' });
+
+  if (msgs.length) {
+    warn.innerHTML = msgs.map(function(m) { return '<div class="' + m.cls + '" style="margin-bottom:8px;">' + m.text + '</div>'; }).join('');
+  } else {
+    warn.style.display = 'none';
+  }
+
+  // Current events table
   const eventsEl = document.getElementById('current-events');
   const events = cond.current_events || [];
   if (!events.length) {
-    eventsEl.innerHTML = '<span style="color:#888">Current data unavailable</span>';
+    eventsEl.innerHTML = '<span style="color:#888">Current predictions unavailable</span>';
     return;
   }
   eventsEl.innerHTML = events.map(function(e) {
     const cls = e.type === 'Slack' ? 'bw' : e.type === 'Flood' ? 'bg' : 'br';
-    const note = e.type === 'Slack' ? 'good transit window' : e.type === 'Ebb' ? 'outgoing — use caution' : 'incoming — easier outbound';
+    let note = '';
+    if (e.type === 'Slack') note = 'best transit window';
+    else if (e.type === 'Ebb') note = 'bar waves steeper — use caution';
+    else if (e.type === 'Flood') note = 'bar flatter, points rougher';
     return '<div class="wr"><span class="bdg ' + cls + '">' + e.type + '</span><span style="font-weight:500">' + e.time + '</span><span style="color:#888;font-size:13px">' + e.speed + ' kts</span><span style="color:#888;font-size:12px">' + note + '</span></div>';
   }).join('');
 }
