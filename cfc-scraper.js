@@ -1,0 +1,235 @@
+const fetch = require('node-fetch');
+
+const CFC_BASE = 'https://forums.coastsidefishingclub.com';
+const CFC_LOGIN_URL = CFC_BASE + '/login/login';
+const CFC_REPORTS_URL = CFC_BASE + '/forums/saltwater-fishing-reports.14/';
+
+// Cache
+var cfcCache = {
+  cookie: null,
+  cookieExpires: null,
+  recentReports: null,
+  recentReportsFetched: null,
+  historicalSummary: null,
+  historicalSummaryFetched: null
+};
+
+async function cfcLogin() {
+  if (!process.env.CFC_USERNAME || !process.env.CFC_PASSWORD) {
+    throw new Error('CFC credentials not configured');
+  }
+
+  // Return cached cookie if still valid (4 hour session)
+  if (cfcCache.cookie && cfcCache.cookieExpires && new Date() < cfcCache.cookieExpires) {
+    return cfcCache.cookie;
+  }
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Referer': CFC_BASE + '/login'
+  };
+
+  // First get the login page to grab CSRF token
+  const loginPageRes = await fetch(CFC_BASE + '/login/', { headers: { 'User-Agent': headers['User-Agent'] } });
+  const loginHtml = await loginPageRes.text();
+
+  // Extract _xfToken
+  const tokenMatch = loginHtml.match(/name="_xfToken"\s+value="([^"]+)"/);
+  const token = tokenMatch ? tokenMatch[1] : '';
+  const initCookies = loginPageRes.headers.get('set-cookie') || '';
+
+  // Submit login form
+  const body = new URLSearchParams({
+    login: process.env.CFC_USERNAME,
+    password: process.env.CFC_PASSWORD,
+    remember: '1',
+    _xfToken: token,
+    _xfRedirect: CFC_BASE + '/'
+  });
+
+  const loginRes = await fetch(CFC_LOGIN_URL, {
+    method: 'POST',
+    headers: Object.assign({}, headers, { 'Cookie': initCookies }),
+    body: body.toString(),
+    redirect: 'manual'
+  });
+
+  const setCookie = loginRes.headers.get('set-cookie') || '';
+  if (!setCookie || setCookie.length < 10) {
+    throw new Error('CFC login failed — check credentials');
+  }
+
+  // Extract session cookies
+  const cookies = setCookie.split(',').map(function(c) { return c.split(';')[0].trim(); }).join('; ');
+  cfcCache.cookie = cookies;
+  cfcCache.cookieExpires = new Date(Date.now() + 4 * 60 * 60 * 1000);
+  return cookies;
+}
+
+async function fetchCFCPage(url, cookie) {
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Cookie': cookie,
+      'Referer': CFC_BASE
+    }
+  });
+  return res.text();
+}
+
+function extractThreadLinks(html) {
+  // XenForo 2 thread links: /threads/title.12345/ or /threads/12345/
+  const patterns = [
+    /href="(\/threads\/[^"?#]+)"/gi,
+    /href="(https:\/\/forums\.coastsidefishingclub\.com\/threads\/[^"?#]+)"/gi
+  ];
+  const links = [];
+  const seen = new Set();
+  for (const pattern of patterns) {
+    const matches = html.matchAll(pattern);
+    for (const m of matches) {
+      let url = m[1];
+      if (!url.startsWith('http')) url = CFC_BASE + url;
+      // Skip page links like /threads/foo/page-2
+      if (url.includes('/page-')) continue;
+      if (!seen.has(url)) { seen.add(url); links.push(url); }
+    }
+  }
+  return links;
+}
+
+function extractPostContent(html) {
+  // XenForo post content is in article.message or div.bbWrapper
+  const posts = [];
+  const articleMatches = html.matchAll(/<article[^>]*class="[^"]*message[^"]*"[^>]*>([\s\S]{100,3000}?)<\/article>/gi);
+  for (const m of articleMatches) {
+    const inner = m[1];
+    // Get username
+    const userMatch = inner.match(/class="[^"]*username[^"]*"[^>]*>([^<]{2,40})</i);
+    const user = userMatch ? userMatch[1].trim() : 'Unknown';
+    // Get date
+    const dateMatch = inner.match(/datetime="([^"]+)"/);
+    const date = dateMatch ? dateMatch[1].slice(0, 10) : '';
+    // Get post text from bbWrapper
+    const contentMatch = inner.match(/<div[^>]*class="[^"]*bbWrapper[^"]*"[^>]*>([\s\S]{50,2000}?)<\/div>/i);
+    if (contentMatch) {
+      const text = contentMatch[1]
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&#\d+;/g, '')
+        .trim();
+      if (text.length > 50) posts.push({ user, date, text: text.slice(0, 800) });
+    }
+  }
+  return posts;
+}
+
+async function getRecentReports() {
+  // Return cached if less than 2 hours old
+  if (cfcCache.recentReports && cfcCache.recentReportsFetched &&
+      (Date.now() - cfcCache.recentReportsFetched) < 2 * 60 * 60 * 1000) {
+    return cfcCache.recentReports;
+  }
+
+  const cookie = await cfcLogin();
+  const reports = [];
+
+  // Scrape first 2 pages of saltwater reports forum
+  for (let page = 1; page <= 2; page++) {
+    const url = page === 1 ? CFC_REPORTS_URL : CFC_REPORTS_URL + '?page=' + page;
+    const html = await fetchCFCPage(url, cookie);
+    const links = extractThreadLinks(html).slice(0, 8);
+    for (const link of links) {
+      try {
+        const threadHtml = await fetchCFCPage(link, cookie);
+        const posts = extractPostContent(threadHtml);
+        // Get thread title
+        const titleMatch = threadHtml.match(/<h1[^>]*class="[^"]*p-title-value[^"]*"[^>]*>([^<]+)</i);
+        const title = titleMatch ? titleMatch[1].trim() : link;
+        if (posts.length) {
+          reports.push({
+            title: title,
+            url: link,
+            date: posts[0].date,
+            author: posts[0].user,
+            content: posts[0].text,
+            replies: posts.slice(1, 4).map(function(p) { return { user: p.user, date: p.date, text: p.text }; })
+          });
+        }
+      } catch(e) { console.error('CFC thread error:', e.message); }
+      if (reports.length >= 10) break;
+    }
+    if (reports.length >= 10) break;
+  }
+
+  cfcCache.recentReports = reports;
+  cfcCache.recentReportsFetched = Date.now();
+  return reports;
+}
+
+async function getHistoricalSummary(anthropicKey) {
+  // Return cached if less than 7 days old
+  if (cfcCache.historicalSummary && cfcCache.historicalSummaryFetched &&
+      (Date.now() - cfcCache.historicalSummaryFetched) < 7 * 24 * 60 * 60 * 1000) {
+    return cfcCache.historicalSummary;
+  }
+
+  const cookie = await cfcLogin();
+  const allReports = [];
+
+  // Scrape pages 1-8 to get ~2 seasons of history
+  for (let page = 1; page <= 8; page++) {
+    const url = CFC_REPORTS_URL + '?page=' + page;
+    const html = await fetchCFCPage(url, cookie);
+    const links = extractThreadLinks(html).slice(0, 10);
+    for (const link of links) {
+      try {
+        const threadHtml = await fetchCFCPage(link, cookie);
+        const posts = extractPostContent(threadHtml);
+        const titleMatch = threadHtml.match(/<h1[^>]*class="[^"]*p-title-value[^"]*"[^>]*>([^<]+)</i);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+        if (posts.length) {
+          allReports.push({ title, date: posts[0].date, content: posts[0].text });
+        }
+      } catch(e) { /* skip */ }
+    }
+    // Small delay to be polite
+    await new Promise(function(r) { setTimeout(r, 500); });
+  }
+
+  if (!allReports.length) throw new Error('No historical reports found');
+
+  // Ask Claude to synthesize patterns
+  const reportText = allReports.map(function(r) {
+    return '[' + r.date + '] ' + r.title + ': ' + r.content.slice(0, 300);
+  }).join('\n\n');
+
+  const prompt = 'You are analyzing historical SF Bay Area fishing reports from the Coastside Fishing Club to identify seasonal and tactical patterns. Here are reports spanning the last 2 seasons:\n\n' + reportText.slice(0, 15000) + '\n\nPlease synthesize the key patterns into a structured summary covering:\n1. SEASONAL TIMING: When do salmon, halibut, rockfish typically show up at which spots by month?\n2. PRODUCTIVE SPOTS: Which spots are mentioned most often and under what conditions?\n3. TIDE PATTERNS: What tide phases consistently produce at which locations?\n4. DEPTH AND TECHNIQUE: What depths and methods are most commonly reported as productive?\n5. WATER CONDITIONS: What temperature, clarity, or bait conditions correlate with good fishing?\n6. BEST MONTHS: What are historically the best months for each species?\n\nBe specific, cite patterns you see in multiple reports, and note any trends. This will be used to improve daily fishing recommendations.';
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] })
+  });
+  const d = await resp.json();
+  const summary = (d.content && d.content[0] && d.content[0].text) ? d.content[0].text : '';
+
+  cfcCache.historicalSummary = summary;
+  cfcCache.historicalSummaryFetched = Date.now();
+  return summary;
+}
+
+async function debugFetch(url) {
+  const cookie = await cfcLogin();
+  const html = await fetchCFCPage(url, cookie);
+  // Extract all href links
+  const links = (html.match(/href="([^"]+)"/gi) || []).slice(0, 50).map(function(m) { return m.match(/href="([^"]+)"/i)[1]; });
+  // Check if logged in
+  const loggedIn = html.includes('data-logged-in="true"');
+  return { loggedIn, htmlLength: html.length, links, htmlSnippet: html.slice(0, 500) };
+}
+
+module.exports = { getRecentReports, getHistoricalSummary, cfcLogin, debugFetch };
