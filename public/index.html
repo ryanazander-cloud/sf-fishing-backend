@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SF Fishing Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f0;color:#1a1a1a;padding:16px;max-width:720px;margin:0 auto;}
+@media(prefers-color-scheme:dark){body{background:#1a1a1a;color:#e8e8e0;}}
+.sc{background:#fff;border:0.5px solid rgba(0,0,0,0.12);border-radius:12px;padding:1rem 1.25rem;margin-bottom:12px;}
+@media(prefers-color-scheme:dark){.sc{background:#2a2a2a;border-color:rgba(255,255,255,0.1);}}
+.stitle{font-size:12px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:12px;}
+.mc{background:#f0efe8;border-radius:8px;padding:.75rem 1rem;}
+@media(prefers-color-scheme:dark){.mc{background:#333;}}
+.mv{font-size:20px;font-weight:500;}
+.ml{font-size:12px;color:#888;margin-top:2px;}
+.wr{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);flex-wrap:wrap;}
+.wr:last-child{border-bottom:none;}
+.bdg{display:inline-block;font-size:11px;padding:2px 8px;border-radius:8px;font-weight:500;}
+.bg{background:#e8f5e9;color:#2e7d32;}.bw{background:#fff8e1;color:#f57f17;}.bi{background:#e3f2fd;color:#1565c0;}.br{background:#ffebee;color:#c62828;}
+@media(prefers-color-scheme:dark){.bg{background:#1b5e20;color:#a5d6a7;}.bw{background:#3e2723;color:#ffcc80;}.bi{background:#0d2137;color:#90caf9;}.br{background:#3b0a0a;color:#ef9a9a;}}
+.sr{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);font-size:14px;}
+.sr:last-child{border-bottom:none;}
+.sp{animation:spin .7s linear infinite;display:inline-block;width:13px;height:13px;border:2px solid #ddd;border-top-color:#888;border-radius:50%;vertical-align:-2px;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.ri{padding:10px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);}
+.ri:last-child{border-bottom:none;}
+.rs{font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+.rb{font-size:13px;line-height:1.6;}
+.reg-box{background:#fff8e1;border:0.5px solid #f9a825;border-radius:8px;padding:10px 14px;font-size:13px;color:#7a5c00;margin-bottom:10px;line-height:1.6;}
+.tip-box{background:#e3f2fd;border:0.5px solid #1976d2;border-radius:8px;padding:10px 14px;font-size:13px;color:#0d47a1;line-height:1.6;}
+.seasonal-box{background:#ffebee;border:0.5px solid #e53935;border-radius:8px;padding:10px 14px;font-size:13px;color:#b71c1c;margin-bottom:10px;line-height:1.6;}
+.err-box{background:#ffebee;border:0.5px solid #e53935;border-radius:8px;padding:10px 14px;font-size:13px;color:#b71c1c;line-height:1.6;}
+.verdict-go{background:#e8f5e9;color:#2e7d32;}.verdict-nogo{background:#ffebee;color:#c62828;}.verdict-caution{background:#fff8e1;color:#f57f17;}
+@media(prefers-color-scheme:dark){.verdict-go{background:#1b5e20;color:#a5d6a7;}.verdict-nogo{background:#3b0a0a;color:#ef9a9a;}.verdict-caution{background:#3e2723;color:#ffcc80;}}
+.loc-toggle{display:flex;background:#f0efe8;border-radius:8px;padding:3px;gap:3px;width:fit-content;}
+.loc-btn{padding:6px 16px;border-radius:6px;border:none;background:transparent;color:#888;font-size:13px;font-weight:500;cursor:pointer;}
+.loc-btn.active{background:#fff;color:#1a1a1a;border:0.5px solid rgba(0,0,0,0.12);}
+.sbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+.sbtn{padding:7px 14px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.15);background:#fff;color:#888;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;}
+.sbtn.active{background:#e3f2fd;color:#1565c0;border-color:#1976d2;}
+.sbtn:hover:not(.active){background:#f0efe8;}
+.ch{display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;margin-bottom:0;}
+.cb{overflow:hidden;}
+.cb.hidden{display:none;}
+h1{font-size:20px;font-weight:500;margin-bottom:16px;margin-top:8px;}
+a{color:#1565c0;}
+.briefing-body p{margin-bottom:10px;}.briefing-body p:last-child{margin-bottom:0;}
+.briefing-body strong{font-weight:600;}
+button{cursor:pointer;padding:8px 18px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.2);background:#fff;color:#1a1a1a;font-size:14px;font-weight:500;margin-top:8px;font-family:inherit;}
+button:hover{background:#f0efe8;}
+</style>
+</head>
+<body>
+<h1>🎣 SF Fishing Dashboard</h1>
+
+<!-- BRIEFING -->
+<div class="sc">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="stitle" style="margin-bottom:0;">🧠 Today's fishing briefing</div>
+      <button id="briefing-collapse-btn" onclick="toggleBriefing()" style="display:none;margin-top:0;font-size:11px;padding:2px 8px;color:#888;">Hide</button>
+    </div>
+    <button id="briefing-btn" onclick="getBriefing()" style="margin-top:0;font-size:13px;padding:6px 16px;background:#2e7d32;color:#fff;border-color:#2e7d32;">Get briefing</button>
+  </div>
+  <div id="briefing-content" style="font-size:13px;color:#888;line-height:1.7;">Hit "Get briefing" for a full daily advisory covering all species — what to fish, where, when, and whether conditions are worth it today.</div>
+</div>
+
+<!-- LIVE FISHING INTEL -->
+<div class="sc">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div class="stitle" style="margin-bottom:0;">📡 Live fishing intel</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span id="reports-timestamp" style="font-size:11px;color:#aaa;"></span>
+      <button id="toggle-reports-btn" onclick="toggleSourceReports()" style="margin-top:0;font-size:12px;padding:4px 10px;color:#888;">Show sources</button>
+    </div>
+  </div>
+  <div id="reports-summary" style="font-size:13px;line-height:1.7;display:none;"></div>
+  <div id="reports" style="display:none;"></div>
+</div>
+
+<!-- SPECIES TABS -->
+<div class="sc" style="padding-bottom:.75rem;">
+  <div class="stitle">I'm targeting</div>
+  <div class="sbtns">
+    <button class="sbtn active" id="btn-salmon" onclick="selectSpecies('salmon')">🐟 Salmon</button>
+    <button class="sbtn" id="btn-halibut" onclick="selectSpecies('halibut')">🐟 Halibut</button>
+    <button class="sbtn" id="btn-rockfish" onclick="selectSpecies('rockfish')">🐟 Rockfish / lingcod</button>
+    <button class="sbtn" id="btn-seabass" onclick="selectSpecies('seabass')">🐟 White seabass</button>
+    <button class="sbtn" id="btn-crab" onclick="selectSpecies('crab')">⚓ Dungeness crab</button>
+    <button class="sbtn" id="btn-tuna" onclick="selectSpecies('tuna')">🐟 Tuna</button>
+  </div>
+</div>
+
+<!-- LOCATION TOGGLE -->
+<div class="sc" id="location-toggle-card" style="display:none;padding-bottom:.85rem;">
+  <div class="stitle">Fishing location</div>
+  <div class="loc-toggle">
+    <button class="loc-btn active" id="loc-ocean" onclick="selectLocation('ocean')">🌊 Ocean / outside Gate</button>
+    <button class="loc-btn" id="loc-bay" onclick="selectLocation('bay')">⚓ Inside SF Bay</button>
+  </div>
+  <div id="loc-note" style="font-size:12px;color:#888;margin-top:8px;"></div>
+</div>
+
+<!-- 7-DAY FORECAST -->
+<div class="sc">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div class="stitle" style="margin-bottom:0;">📅 7-day outlook</div>
+    <span id="forecast-timestamp" style="font-size:11px;color:#aaa;"></span>
+  </div>
+  <div id="forecast-strip"><span class="sp"></span> Loading forecast...</div>
+</div>
+
+<!-- GO/NO-GO -->
+<div class="sc" style="text-align:center;padding:1.5rem;">
+  <div style="font-size:13px;color:#888;margin-bottom:8px;" id="vdate"></div>
+  <div id="vbadge" style="display:inline-block;font-size:26px;font-weight:500;padding:10px 32px;border-radius:12px;background:#f0efe8;color:#888;"><span class="sp"></span> Loading</div>
+  <div id="vreason" style="font-size:14px;color:#888;margin-top:10px;max-width:480px;margin-left:auto;margin-right:auto;"></div>
+</div>
+
+<!-- CONDITIONS -->
+<div class="mg">
+  <div class="mc"><div class="mv" id="m-wind">—</div><div class="ml">💨 Wind</div></div>
+  <div class="mc"><div class="mv" id="m-wdir">—</div><div class="ml">🧭 Direction</div></div>
+  <div class="mc"><div class="mv" id="m-swell">—</div><div class="ml">🌊 Swell</div></div>
+  <div class="mc"><div class="mv" id="m-tide">—</div><div class="ml">↕ Tide now</div></div>
+  <div class="mc"><div class="mv" id="m-current">—</div><div class="ml">🌊 Current</div></div>
+</div>
+
+<!-- NWS WARNINGS -->
+<div id="nws-warnings" style="display:none;margin-bottom:12px;"></div>
+
+<!-- SPECIES INFO (collapsed) -->
+<div class="sc">
+  <div class="ch" onclick="toggleSec('si')">
+    <div class="stitle" style="margin-bottom:0;">Species info</div>
+    <span id="si-icon">►</span>
+  </div>
+  <div class="cb hidden" id="si">
+    <div id="reg-content" style="padding-top:10px;"></div>
+  </div>
+</div>
+
+<!-- BEST SPOTS TODAY (collapsed, populated by briefing) -->
+<div class="sc">
+  <div class="ch" onclick="toggleSec('bs')">
+    <div class="stitle" style="margin-bottom:0;">📍 Best spots today</div>
+    <span id="bs-icon">►</span>
+  </div>
+  <div class="cb hidden" id="bs">
+    <div id="best-spots-content" style="padding-top:10px;font-size:13px;color:#888;">Hit "Get briefing" to see today's recommended spots.</div>
+  </div>
+</div>
+
+<!-- BEST WINDOWS (collapsed) -->
+<div class="sc">
+  <div class="ch" onclick="toggleSec('bw')">
+    <div class="stitle" style="margin-bottom:0;">⏰ Best windows today</div>
+    <span id="bw-icon">►</span>
+  </div>
+  <div class="cb hidden" id="bw">
+    <div id="windows" style="padding-top:10px;"><span class="sp"></span> Loading...</div>
+  </div>
+</div>
+
+<!-- TIDES & CURRENTS (collapsed) -->
+<div class="sc">
+  <div class="ch" onclick="toggleSec('tc')">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex:1;">
+      <div class="stitle" style="margin-bottom:0;">📊 Tides &amp; currents</div>
+      <div id="current-maxes" style="font-size:12px;color:#888;text-align:right;margin-right:10px;"></div>
+    </div>
+    <span id="tc-icon">►</span>
+  </div>
+  <div class="cb hidden" id="tc" style="padding-top:10px;">
+    <!-- Location tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <button id="loc-tab-golden_gate" onclick="selectTideLocation('golden_gate')" style="font-size:12px;padding:4px 10px;border-radius:6px;border:0.5px solid #1976d2;background:#e3f2fd;color:#1565c0;cursor:pointer;margin:0;">Golden Gate</button>
+      <button id="loc-tab-alcatraz" onclick="selectTideLocation('alcatraz')" style="font-size:12px;padding:4px 10px;border-radius:6px;border:0.5px solid rgba(0,0,0,0.15);background:#fff;color:#888;cursor:pointer;margin:0;">Alcatraz</button>
+    </div>
+    <div id="loc-note-display" style="font-size:11px;color:#aaa;margin-bottom:6px;display:none;"></div>
+    <div id="loc-maxes" style="font-size:12px;color:#888;margin-bottom:8px;"></div>
+    <canvas id="current-chart" height="110" style="width:100%;display:block;"></canvas>
+    <div id="chart-labels" style="display:flex;justify-content:space-between;font-size:10px;color:#888;margin-top:3px;"></div>
+    <div id="loc-tide-events" style="margin-top:10px;"></div>
+    <div id="loc-current-events" style="margin-top:8px;"></div>
+    <div id="tide-summary" style="font-size:12px;color:#888;margin-top:8px;line-height:1.6;"></div>
+  </div>
+</div>
+
+<!-- GG BAR CROSSING ADVICE (collapsed) -->
+<div class="sc">
+  <div class="ch" onclick="toggleSec('bar')">
+    <div class="stitle" style="margin-bottom:0;">🌊 GG Bar crossing advice</div>
+    <span id="bar-icon">►</span>
+  </div>
+  <div class="cb hidden" id="bar" style="padding-top:10px;">
+    <div id="current-events"></div>
+    <div id="current-warning" style="display:none;margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- REFRESH BUTTON -->
+<div style="text-align:center;margin-top:8px;margin-bottom:1.5rem;">
+  <button onclick="refreshAll()">↻ Refresh all data</button>
+  <button id="hist-btn" onclick="buildHistorical()" style="margin-left:8px;font-size:12px;color:#888;background:#f5f5f0;border-color:rgba(0,0,0,0.1);">🗂 Build historical patterns</button>
+  <div id="hist-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
+</div>
+
+<script>
+async function buildHistorical() {
+  var btn = document.getElementById('hist-btn');
+  var status = document.getElementById('hist-status');
+  btn.disabled = true;
+  status.textContent = 'Starting historical scrape — this takes 5-10 minutes in the background...';
+  try {
+    var resp = await fetch('/cfc-historical-build', { method: 'POST' });
+    var data = await resp.json();
+    if (data.error) { status.textContent = 'Error: ' + data.error; }
+    else { status.textContent = data.message + ' Next briefing will include historical patterns.'; }
+  } catch(e) { status.textContent = 'Error: ' + e.message; }
+  btn.disabled = false;
+}
+</script>
+
+<script>
+// toggleSec must be first — called from onclick in HTML above
+function toggleSec(id) {
+  var el = document.getElementById(id);
+  var icon = document.getElementById(id + '-icon');
+  if (!el) return;
+  if (el.classList.contains('hidden')) {
+    el.classList.remove('hidden');
+    if (icon) icon.textContent = '▼';
+  } else {
+    el.classList.add('hidden');
+    if (icon) icon.textContent = '►';
+  }
+}
+
+var GO = {maxSwell:5, maxWind:20, maxWindBay:25};
+var currentSpecies = 'salmon', currentLocation = 'ocean';
+var cachedTideEvents = [], windSpeed = null, windDir = null, swellHt = null;
+var lastReportText = '', forecastData = [], multiLocData = {};
+var currentTideLocation = 'golden_gate';
+var sourceReportsVisible = false;
+var briefingCollapsed = false;
+var mo = new Date().getMonth() + 1;
+var isSeabassSeasonHint = (mo >= 8 && mo <= 11);
+var SPECIES_WITH_BAY = ['halibut', 'seabass'];
+
+function todayStr() { return new Date().toLocaleDateString('en-US', {weekday:'long',month:'long',day:'numeric'}); }
+function isSouthWind(d) { return d && ['S','SE','SW','SSE','SSW'].includes(d.toUpperCase().trim()); }
+
+// ── Species info ──────────────────────────────────────────────────────────────
+function spotsHalibut(loc) {
+  if (loc === 'bay') return '<div style="font-size:12px;color:#888;font-weight:500;padding:4px 0 2px;">Inside SF Bay</div><div class="sr"><span><strong>Raccoon Strait</strong><span style="color:#888;font-size:12px;margin-left:8px;">Angel Island — tidal flats</span></span><span class="bdg bg">Bay ~4 mi</span></div><div class="sr"><span><strong>Treasure Island flats</strong><span style="color:#888;font-size:12px;margin-left:8px;">Sandy bottom mid-Bay</span></span><span class="bdg bg">Bay ~4 mi</span></div><div class="sr"><span><strong>Alcatraz</strong><span style="color:#888;font-size:12px;margin-left:8px;">Near-shore sandy bottom</span></span><span class="bdg bg">Bay ~2 mi</span></div>';
+  return '<div style="font-size:12px;color:#888;font-weight:500;padding:4px 0 2px;">Ocean / outside Gate</div><div class="sr"><span><strong>Potato Patch</strong><span style="color:#888;font-size:12px;margin-left:8px;">Sandy bottom — prime</span></span><span class="bdg bg">~5 mi</span></div><div class="sr"><span><strong>Bay mouth / Lime Point</strong><span style="color:#888;font-size:12px;margin-left:8px;">Gate transition zone</span></span><span class="bdg bg">~2-5 mi</span></div><div class="sr"><span><strong>Pacifica flats</strong><span style="color:#888;font-size:12px;margin-left:8px;">South — sandy bottom</span></span><span class="bdg bg">~8 mi</span></div>';
+}
+
+var SPECIES = {
+  salmon: {label:'Salmon', windowNote:function(t){return t==='High'?'1-2 hrs before — prime bite':'tide change — fish moving';},
+    info:function(){return '<div class="tip-box">💡 Troll 90-180 ft. Best bite 1-2 hrs before high tide. Anchovies, hoochies, or cut plug herring. Follow birds and bait schools.</div>';}},
+  halibut: {label:'Halibut', windowNote:function(t){return t==='High'?'slack tide — prime halibut window':'current picking up';},
+    info:function(loc){return '<div class="reg-box">⚠️ CA halibut: 22" min, 5 fish limit. Verify at <a href="https://wildlife.ca.gov/fishing" target="_blank">wildlife.ca.gov</a>.</div><div class="tip-box">💡' + (loc==='bay'?' Bay: sandy channel edges 15-40 ft. Slack tide around high is prime.':' Ocean: sandy bottom 20-60 ft. Slack water around high. Drift slowly.') + '</div>';}},
+  rockfish: {label:'Rockfish / lingcod', windowNote:function(t){return t==='High'?'incoming flow — active':'slack — good for deep drops';},
+    info:function(){return '<div class="reg-box">⚠️ Complex seasonal/depth restrictions. CCAs in effect. Verify at <a href="https://wildlife.ca.gov/fishing/ocean/rockfish-cabezon-greenlings" target="_blank">wildlife.ca.gov</a>.</div><div class="tip-box">💡 Hard bottom 60-300 ft. Jigs, swimbaits, live bait. Lingcod at bottom edge of structure.</div>';}},
+  seabass: {label:'White seabass', windowNote:function(t){return t==='High'?'incoming — seabass hunting bait':'low light / tide change';},
+    info:function(loc){return (!isSeabassSeasonHint?'<div class="seasonal-box">📅 White seabass typically Aug-Nov. May be outside primary season.</div>':'') + '<div class="reg-box">⚠️ 28" min, 3 fish limit. Verify at <a href="https://wildlife.ca.gov/fishing" target="_blank">wildlife.ca.gov</a>.</div><div class="tip-box">💡' + (loc==='bay'?' Bay: channel edges, kelp near Sausalito. Dawn/dusk. Drift quietly with live squid.':' Ocean: kelp bed edges at dawn/dusk on incoming tide. Live squid. 20-60 ft near kelp canopy.') + '</div>';}},
+  crab: {label:'Dungeness crab', windowNote:function(t){return t==='High'?'strong current — crabs feeding':'tide change — check pots';},
+    info:function(){return '<div class="reg-box">⚠️ Season dates and domoic acid closures change annually. Verify at <a href="https://wildlife.ca.gov/fishing/ocean/crab/dungeness" target="_blank">wildlife.ca.gov</a> before setting pots. Min 5-3/4" shell, 10 crab/day.</div><div class="tip-box">💡 Set pots 60-120 ft on sandy/rocky bottom. Bait with squid or fish carcass. Check every 24 hrs.</div>';}},
+  tuna: {label:'Tuna (Albacore/Bluefin)', windowNote:function(){return 'conditions matter more than tide';},
+    info:function(){var inSeason=(mo>=7&&mo<=11);return (!inSeason?'<div class="seasonal-box">📅 Albacore/bluefin typically Jul-Nov. Check current SST charts for warm water (60F+).</div>':'') + '<div class="reg-box">⚠️ Albacore: no size limit, 25/day. Bluefin: check current PFMC regs at <a href="https://www.pcouncil.org" target="_blank">pcouncil.org</a>.</div><div class="tip-box">💡 Troll feathers/cedar plugs at temp breaks (59-65F) for albacore. Bluefin: use SST charts, live mackerel or chunk bait. These are 40-100+ mile trips.</div>';}}
+};
+
+// ── Go/No-Go ──────────────────────────────────────────────────────────────────
+function getVerdict(wind, dir, swell, species, loc) {
+  var isBay = (loc === 'bay' && SPECIES_WITH_BAY.includes(species));
+  if (!isBay && isSouthWind(dir)) return {verdict:'NO-GO', cls:'verdict-nogo', reason:'South-component wind (' + dir + ') — not going out.'};
+  if (!isBay && swell !== null && swell > GO.maxSwell) return {verdict:'NO-GO', cls:'verdict-nogo', reason:'Swell at ' + swell + ' ft exceeds your 5 ft limit.'};
+  var wlim = isBay ? GO.maxWindBay : GO.maxWind;
+  if (wind !== null && wind > wlim) return {verdict:'NO-GO', cls:'verdict-nogo', reason:'Winds at ' + wind + ' kts exceed ' + (isBay?'Bay':'ocean') + ' limit of ' + wlim + ' kts.'};
+  if ((wind !== null && wind > (isBay?20:15)) || (!isBay && swell !== null && swell > 3.5))
+    return {verdict:'CAUTION', cls:'verdict-caution', reason:'Marginal — wind ' + (wind||'?') + ' kts from ' + (dir||'?') + (!isBay?', swell ' + (swell||'?') + ' ft':' (Bay)') + '. Plan early windows.'};
+  return {verdict:'GO FISH', cls:'verdict-go', reason:'Good for ' + SPECIES[species].label.toLowerCase() + ' ' + (isBay?'inside the Bay':'outside the Gate') + ' — wind ' + (wind||'?') + ' kts from ' + (dir||'?') + (!isBay?', swell ' + (swell||'?') + ' ft':'.')};
+}
+
+function setVerdict() {
+  if (windSpeed === null && swellHt === null) return;
+  var r = getVerdict(windSpeed, windDir, swellHt, currentSpecies, currentLocation);
+  var vb = document.getElementById('vbadge');
+  vb.textContent = r.verdict; vb.className = r.cls;
+  vb.style.cssText = 'display:inline-block;font-size:28px;font-weight:500;padding:10px 32px;border-radius:12px;';
+  document.getElementById('vreason').textContent = r.reason;
+}
+
+// ── Species/Location selection ────────────────────────────────────────────────
+function selectLocation(loc) {
+  currentLocation = loc;
+  ['ocean','bay'].forEach(function(x){document.getElementById('loc-'+x).classList.toggle('active',x===loc);});
+  document.getElementById('loc-note').textContent = loc==='bay'?'Inside the Bay — swell not a factor. Wind threshold relaxed to 25 kts.':'Ocean conditions apply.';
+  updateSpeciesContent();
+  renderForecastStrip(currentSpecies, currentLocation);
+}
+
+function selectSpecies(s) {
+  currentSpecies = s;
+  Object.keys(SPECIES).forEach(function(x){document.getElementById('btn-'+x).classList.toggle('active',x===s);});
+  var show = SPECIES_WITH_BAY.includes(s);
+  document.getElementById('location-toggle-card').style.display = show ? 'block' : 'none';
+  if (!show) currentLocation = 'ocean';
+  updateSpeciesContent();
+  loadReports();
+  renderForecastStrip(s, currentLocation);
+}
+
+function updateSpeciesContent() {
+  var sp = SPECIES[currentSpecies];
+  setVerdict();
+  document.getElementById('reg-content').innerHTML = sp.info(currentLocation);
+  if (cachedTideEvents.length) renderTideWindows();
+}
+
+// ── 7-day forecast ────────────────────────────────────────────────────────────
+var GO_T = {maxSwell:5, maxWind:20, badDirs:['S','SE','SW','SSE','SSW']};
+
+function scoreForecastDay(day, species, location) {
+  var isBay = (location === 'bay' && SPECIES_WITH_BAY.includes(species));
+  var wind = day.wind_kts, dir = day.wind_dir, swell = day.swell_ft;
+  if (!isBay && dir && GO_T.badDirs.includes((dir||'').toUpperCase())) return 'nogo';
+  if (!isBay && swell !== null && swell > GO_T.maxSwell) return 'nogo';
+  var wlim = isBay ? 25 : 20;
+  if (wind !== null && wind > wlim) return 'nogo';
+  var cautionWind = isBay ? 20 : 15;
+  if ((wind !== null && wind > cautionWind) || (!isBay && swell !== null && swell > 3.5)) return 'caution';
+  if (wind === null && swell === null) return 'unknown';
+  return 'go';
+}
+
+function renderForecastStrip(species, location) {
+  var el = document.getElementById('forecast-strip');
+  if (!forecastData.length) { el.innerHTML = '<span style="color:#888;font-size:13px;">Forecast unavailable</span>'; return; }
+  var html = '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">';
+  for (var i = 0; i < forecastData.length; i++) {
+    var day = forecastData[i];
+    var score = scoreForecastDay(day, species, location);
+    var bg = score==='go'?'#e8f5e9':score==='nogo'?'#ffebee':score==='caution'?'#fff8e1':'#f5f5f5';
+    var color = score==='go'?'#2e7d32':score==='nogo'?'#c62828':score==='caution'?'#f57f17':'#888';
+    var icon = score==='go'?'✓':score==='nogo'?'✗':score==='caution'?'~':'?';
+    html += '<div style="flex:0 0 auto;width:110px;background:'+bg+';border-radius:8px;padding:8px 10px;cursor:pointer;" onclick="showForecastDetail('+i+')">';
+    html += '<div style="font-weight:600;font-size:13px;color:'+color+';">'+icon+' '+day.dow+'</div>';
+    html += '<div style="font-size:11px;color:#555;margin-top:3px;">'+(day.wind_kts!==null?day.wind_kts+'kt '+(day.wind_dir||''):'—')+'</div>';
+    html += '<div style="font-size:11px;color:#555;">'+(day.swell_ft!==null?day.swell_ft+'ft':'—')+'</div>';
+    html += '<div style="font-size:10px;color:#888;margin-top:3px;">High: '+(day.best_window||'—')+'</div>';
+    html += '</div>';
+  }
+  html += '</div><div id="forecast-detail" style="display:none;margin-top:10px;padding:10px;background:#f9f9f6;border-radius:8px;font-size:13px;"></div>';
+  el.innerHTML = html;
+}
+
+function showForecastDetail(idx) {
+  var day = forecastData[idx];
+  var detail = document.getElementById('forecast-detail');
+  if (!detail) return;
+  if (detail.dataset.idx == idx && detail.style.display !== 'none') { detail.style.display='none'; return; }
+  detail.dataset.idx = idx;
+  var highStr = (day.high_tides||[]).map(function(t){return t.time+' ('+t.ft+'ft)';}).join(', ') || '—';
+  var lowStr = (day.low_tides||[]).map(function(t){return t.time+' ('+t.ft+'ft)';}).join(', ') || '—';
+  var floodStr = day.max_flood ? day.max_flood.speed+' kts at '+day.max_flood.time : '—';
+  var ebbStr = day.max_ebb ? day.max_ebb.speed+' kts at '+day.max_ebb.time : '—';
+  detail.innerHTML = '<strong>'+day.name+'</strong><br><br>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">Wind</div><div>'+(day.wind_kts!==null?day.wind_kts+' kts '+(day.wind_dir||''):'—')+'</div></div>'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">Swell</div><div>'+(day.swell_ft!==null?day.swell_ft+' ft':'—')+'</div></div>'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">High tides</div><div>'+highStr+'</div></div>'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">Low tides</div><div>'+lowStr+'</div></div>'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">Max flood</div><div>'+floodStr+'</div></div>'
+    + '<div><div style="color:#888;font-size:11px;text-transform:uppercase;">Max ebb</div><div>'+ebbStr+'</div></div>'
+    + (day.summary?'<div style="grid-column:1/-1;margin-top:6px;color:#555;font-size:12px;">'+day.summary+'</div>':'')
+    + '</div>';
+  detail.style.display = 'block';
+}
+
+async function loadForecast() {
+  try {
+    var res = await fetch('/forecast');
+    var data = await res.json();
+    if (data.days) {
+      forecastData = data.days;
+      var ts = new Date(data.fetched_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      document.getElementById('forecast-timestamp').textContent = 'Updated ' + ts;
+      renderForecastStrip(currentSpecies, currentLocation);
+    }
+  } catch(e) { document.getElementById('forecast-strip').innerHTML = '<span style="color:#888;font-size:13px;">Forecast unavailable</span>'; }
+}
+
+// ── Tides & currents ──────────────────────────────────────────────────────────
+function renderTideWindows() {
+  var sp = SPECIES[currentSpecies];
+  document.getElementById('windows').innerHTML = cachedTideEvents.map(function(e) {
+    return '<div class="wr"><span class="bdg '+(e.type==='High'?'bg':'bw')+'">'+e.type+' tide</span><span style="font-weight:500">'+e.time+'</span><span style="color:#888;font-size:13px">'+e.ft+' ft</span><span style="color:#888;font-size:12px">'+sp.windowNote(e.type)+'</span></div>';
+  }).join('');
+}
+
+function selectTideLocation(id) {
+  currentTideLocation = id;
+  ['golden_gate','alcatraz'].forEach(function(lid) {
+    var btn = document.getElementById('loc-tab-'+lid);
+    if (!btn) return;
+    if (lid === id) { btn.style.background='#e3f2fd'; btn.style.color='#1565c0'; btn.style.borderColor='#1976d2'; }
+    else { btn.style.background='#fff'; btn.style.color='#888'; btn.style.borderColor='rgba(0,0,0,0.15)'; }
+  });
+  renderTideLocation(id);
+}
+
+function renderTideLocation(id) {
+  var loc = multiLocData[id];
+  if (!loc) return;
+  var noteEl = document.getElementById('loc-note-display');
+  if (loc.note) { noteEl.textContent = '* ' + loc.note; noteEl.style.display='block'; } else noteEl.style.display='none';
+  var maxesEl = document.getElementById('loc-maxes');
+  var parts = [];
+  if (loc.max_flood) parts.push('<span style="color:#2e7d32;">▲ Flood ' + loc.max_flood.speed + ' kts @ ' + loc.max_flood.time + '</span>');
+  if (loc.max_ebb) parts.push('<span style="color:#c62828;">▼ Ebb ' + loc.max_ebb.speed + ' kts @ ' + loc.max_ebb.time + '</span>');
+  maxesEl.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+  var tideEl = document.getElementById('loc-tide-events');
+  tideEl.innerHTML = (loc.tides||[]).map(function(t) {
+    return '<div class="wr"><span class="bdg '+(t.type==='High'?'bg':'bw')+'">'+t.type+'</span><span style="font-weight:500">'+t.time+'</span><span style="color:#888;font-size:13px">'+t.ft+' ft</span></div>';
+  }).join('');
+  var currentEl = document.getElementById('loc-current-events');
+  var evts = loc.current_events || [];
+  var peakF = evts.filter(function(e){return e.type==='Flood';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0});
+  var peakE = evts.filter(function(e){return e.type==='Ebb';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0});
+  currentEl.innerHTML = evts.map(function(e) {
+    var cls = e.type==='Slack'?'bw':e.type==='Flood'?'bg':'br';
+    var note = e.type==='Slack'?'best transit window':e.type==='Ebb'?'bar waves steeper':'bar flatter, points rougher';
+    var isPeak = (e.type==='Flood'&&e.speed===peakF.speed&&peakF.speed>0)||(e.type==='Ebb'&&e.speed===peakE.speed&&peakE.speed>0);
+    var tag = isPeak?'<span style="font-size:10px;background:#555;color:#fff;border-radius:4px;padding:1px 4px;margin-left:4px;">max</span>':'';
+    return '<div class="wr"><span class="bdg '+cls+'">'+e.type+'</span><span style="font-weight:500">'+e.time+'</span><span style="color:#888;font-size:13px">'+e.speed+' kts'+tag+'</span><span style="color:#888;font-size:12px">'+note+'</span></div>';
+  }).join('');
+  renderCurrentChartForData(loc.current_hourly || [], evts);
+}
+
+async function loadMultiTides() {
+  try {
+    var res = await fetch('/tides-multi');
+    var data = await res.json();
+    if (data.locations) {
+      data.locations.forEach(function(loc){multiLocData[loc.id]=loc;});
+      renderTideLocation(currentTideLocation);
+    }
+  } catch(e) { console.error('Multi-tides error:', e.message); }
+}
+
+// ── Current chart ─────────────────────────────────────────────────────────────
+function renderCurrentChart(cond) {
+  renderCurrentChartForData(cond.current_hourly || [], cond.current_events || []);
+}
+
+function renderCurrentChartForData(hourly, events) {
+  var canvas = document.getElementById('current-chart');
+  if (!canvas) return;
+  var W = canvas.parentElement.clientWidth - 20;
+  if (W < 100) W = 300;
+  canvas.width = W; canvas.height = 110;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, 110);
+  if (!hourly || !hourly.length) {
+    ctx.fillStyle = '#888'; ctx.font = '13px sans-serif';
+    ctx.fillText('Current data unavailable', 10, 55); return;
+  }
+  var maxV = Math.max.apply(null, hourly.map(function(p){return Math.abs(p.vel);})) || 1;
+  var midY = 55, scaleY = 45 / maxV;
+  function xT(h,m){return((h*60+m)/1440)*W;}
+  function yV(v){return midY-v*scaleY;}
+  var pts = hourly.map(function(p){return{x:xT(p.hour,p.min),y:yV(p.vel),vel:p.vel};});
+  if (pts.length < 2) return;
+  // Flood fill
+  ctx.beginPath(); ctx.moveTo(pts[0].x,midY);
+  pts.forEach(function(p){ctx.lineTo(p.x,p.y);});
+  ctx.lineTo(pts[pts.length-1].x,midY); ctx.closePath();
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,midY); ctx.clip();
+  ctx.fillStyle='rgba(24,95,165,0.75)'; ctx.fill(); ctx.restore();
+  // Ebb fill
+  ctx.beginPath(); ctx.moveTo(pts[0].x,midY);
+  pts.forEach(function(p){ctx.lineTo(p.x,p.y);});
+  ctx.lineTo(pts[pts.length-1].x,midY); ctx.closePath();
+  ctx.save(); ctx.beginPath(); ctx.rect(0,midY,W,55); ctx.clip();
+  ctx.fillStyle='rgba(80,120,80,0.70)'; ctx.fill(); ctx.restore();
+  // Center line
+  ctx.beginPath(); ctx.moveTo(0,midY); ctx.lineTo(W,midY);
+  ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1; ctx.stroke();
+  // Curve
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  pts.forEach(function(p){ctx.lineTo(p.x,p.y);});
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1.5; ctx.stroke();
+  // Now marker
+  var now = new Date();
+  var nx = xT(now.getHours(),now.getMinutes());
+  ctx.beginPath(); ctx.moveTo(nx,0); ctx.lineTo(nx,110);
+  ctx.strokeStyle='rgba(255,80,80,0.8)'; ctx.lineWidth=2;
+  ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+  // Slack markers
+  events.forEach(function(ev) {
+    if (ev.type !== 'Slack') return;
+    var t = ev.time.toLowerCase().replace(/\s/,'');
+    var m = t.match(/(\d+):(\d+)(am|pm)/);
+    if (!m) return;
+    var h = parseInt(m[1]), mn = parseInt(m[2]);
+    if (m[3]==='pm'&&h!==12) h+=12;
+    if (m[3]==='am'&&h===12) h=0;
+    var sx = xT(h,mn);
+    ctx.beginPath(); ctx.moveTo(sx,8); ctx.lineTo(sx,102);
+    ctx.strokeStyle='rgba(180,180,180,0.6)'; ctx.lineWidth=1;
+    ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#aaa'; ctx.font='9px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('slack',sx,8); ctx.fillText(ev.time,sx,110);
+  });
+  // Hour labels
+  var labelsEl = document.getElementById('chart-labels');
+  if (labelsEl) {
+    var lh = '';
+    for (var h2=0;h2<=24;h2+=3){
+      var lhh=h2>12?h2-12:(h2===0?12:h2);
+      lh+='<span>'+lhh+(h2>=12?'pm':'am')+'</span>';
+    }
+    labelsEl.innerHTML = lh;
+  }
+}
+
+// ── Bar crossing advice ───────────────────────────────────────────────────────
+function renderCurrents(cond) {
+  var nowEl = document.getElementById('m-current');
+  var warn = document.getElementById('current-warning');
+  var dir = cond.current_now_dir || '';
+  var spd = cond.current_now_kts;
+  var swell = typeof swellHt === 'number' ? swellHt : null;
+  if (spd !== null && spd !== undefined) {
+    nowEl.textContent = spd + ' kts' + (dir==='ebb'?' ebb':dir==='flood'?' flood':dir==='slack'?' slack':'');
+  } else nowEl.textContent = '—';
+  // Max flood/ebb in conditions header
+  var maxesEl = document.getElementById('current-maxes');
+  if (maxesEl) {
+    var evts = cond.current_events || [];
+    var mF = evts.filter(function(e){return e.type==='Flood';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0,time:''});
+    var mE = evts.filter(function(e){return e.type==='Ebb';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0,time:''});
+    var pts2 = [];
+    if (mF.speed>0) pts2.push('<span style="color:#2e7d32;">▲ '+mF.speed+' kts '+mF.time+'</span>');
+    if (mE.speed>0) pts2.push('<span style="color:#c62828;">▼ '+mE.speed+' kts '+mE.time+'</span>');
+    maxesEl.innerHTML = pts2.join(' &nbsp;·&nbsp; ');
+  }
+  // Bar advice
+  if (!warn) return;
+  warn.style.display = 'block';
+  var strongEbb=dir==='ebb'&&spd>=2.5, modEbb=dir==='ebb'&&spd>=1.5&&spd<2.5;
+  var isFlood=dir==='flood', isSlack=dir==='slack'||(spd!==null&&spd<0.3);
+  var swellUp=swell!==null&&swell>=4, swellBig=swell!==null&&swell>=6;
+  var msgs=[];
+  if(strongEbb&&swellUp)msgs.push({cls:'err-box',text:'⛔ Strong ebb ('+spd+' kts) + swell '+swell+' ft — worst combination. Wait for slack or flood. Ship channel only.'});
+  else if(strongEbb)msgs.push({cls:'reg-box',text:'⚠️ Strong ebb ('+spd+' kts). Bar waves steeper than forecast. Ship channel only.'});
+  else if(modEbb&&swellUp)msgs.push({cls:'reg-box',text:'⚠️ Moderate ebb ('+spd+' kts) + '+swell+' ft swell. Steeper waves. Ship channel.'});
+  else if(modEbb)msgs.push({cls:'tip-box',text:'💡 Ebb at '+spd+' kts. Waves somewhat steeper. Ship channel, allow extra time.'});
+  else if(isFlood&&swellBig)msgs.push({cls:'tip-box',text:'💡 Flood flattens bar waves but Pt. Lobos and Pt. Bonita get rougher. Pass outside Mile Rock.'});
+  else if(isFlood)msgs.push({cls:'tip-box',text:'💡 Flood tide — bar waves flatter. Watch Pt. Lobos (pass outside Mile Rock) and Pt. Bonita (washing machine effect).'});
+  else if(isSlack)msgs.push({cls:'tip-box',text:'✅ Near slack — best time to cross. Ship channel or Bonita Channel (OK up to 10 ft swell).'});
+  if(swellBig)msgs.push({cls:'reg-box',text:'⚠️ Swell '+swell+' ft — stay in ship channel. South Bar has no channel — avoid.'});
+  else if(swellUp)msgs.push({cls:'tip-box',text:'💡 Ship channel or Bonita Channel. Avoid South Bar — no real channel, breaks unexpectedly.'});
+  msgs.push({cls:'tip-box',text:'📌 Lose power on the bar: anchor immediately — current pushes you across South Bar fast.'});
+  warn.innerHTML = msgs.map(function(m){return '<div class="'+m.cls+'" style="margin-bottom:8px;">'+m.text+'</div>';}).join('');
+  // Current events table
+  var eventsEl = document.getElementById('current-events');
+  if (!eventsEl) return;
+  var events2 = cond.current_events || [];
+  if (!events2.length) { eventsEl.innerHTML='<span style="color:#888">Current predictions unavailable</span>'; return; }
+  var peakF2=events2.filter(function(e){return e.type==='Flood';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0});
+  var peakE2=events2.filter(function(e){return e.type==='Ebb';}).reduce(function(m,e){return e.speed>m.speed?e:m;},{speed:0});
+  eventsEl.innerHTML = events2.map(function(e){
+    var cls=e.type==='Slack'?'bw':e.type==='Flood'?'bg':'br';
+    var note=e.type==='Slack'?'best transit window':e.type==='Ebb'?'bar waves steeper':'bar flatter, points rougher';
+    var isPeak=(e.type==='Flood'&&e.speed===peakF2.speed&&peakF2.speed>0)||(e.type==='Ebb'&&e.speed===peakE2.speed&&peakE2.speed>0);
+    var tag=isPeak?'<span style="font-size:10px;background:#555;color:#fff;border-radius:4px;padding:1px 4px;margin-left:4px;">max</span>':'';
+    return '<div class="wr"><span class="bdg '+cls+'">'+e.type+'</span><span style="font-weight:500">'+e.time+'</span><span style="color:#888;font-size:13px">'+e.speed+' kts'+tag+'</span><span style="color:#888;font-size:12px">'+note+'</span></div>';
+  }).join('');
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+function toggleSourceReports() {
+  sourceReportsVisible = !sourceReportsVisible;
+  document.getElementById('reports').style.display = sourceReportsVisible ? 'block' : 'none';
+  document.getElementById('toggle-reports-btn').textContent = sourceReportsVisible ? 'Hide sources' : 'Show sources';
+}
+
+function formatReports(reports) {
+  if (!reports||!reports.length) return '<span style="color:#888">No reports found.</span>';
+  return reports.map(function(r){
+    return '<div class="ri"><div class="rs">'+(r.source||'Unknown')+'</div><div class="rb">'+(r.snippet||'')+'</div>'+(r.url?'<div style="margin-top:4px;"><a href="'+r.url+'" target="_blank" style="font-size:12px;">View full report ↗</a></div>':'')+'</div>';
+  }).join('');
+}
+
+async function loadReports() {
+  var summaryEl = document.getElementById('reports-summary');
+  var reportsEl = document.getElementById('reports');
+  summaryEl.style.display = 'none'; summaryEl.innerHTML = '';
+  reportsEl.innerHTML = '<span class="sp"></span> Fetching...';
+  try {
+    var res = await fetch('/reports?species='+currentSpecies+'&location='+currentLocation);
+    var data = await res.json();
+    lastReportText = (data.reports||[]).map(function(r){return r.snippet||'';}).join(' ');
+    var ts = new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+    document.getElementById('reports-timestamp').textContent = 'Updated ' + ts;
+    summaryEl.style.display = 'block';
+    if (data.summary) {
+      summaryEl.innerHTML = '<div style="background:#f0f7ff;border:0.5px solid #1976d2;border-radius:8px;padding:10px 14px;color:#0d47a1;line-height:1.7;">'+data.summary+'</div>';
+    } else if (data.reports&&data.reports.length) {
+      summaryEl.innerHTML = '<span style="color:#888;font-size:13px;">'+data.reports.length+' reports available — click "Show sources".</span>';
+    } else {
+      summaryEl.innerHTML = '<span style="color:#888;font-size:13px;">No recent reports found.</span>';
+    }
+    reportsEl.innerHTML = formatReports(data.reports||[]);
+    reportsEl.style.display = sourceReportsVisible ? 'block' : 'none';
+  } catch(e) {
+    summaryEl.style.display='block';
+    summaryEl.innerHTML='<div class="err-box">Could not fetch reports: '+e.message+'</div>';
+  }
+}
+
+// ── Briefing ──────────────────────────────────────────────────────────────────
+function toggleBriefing() {
+  briefingCollapsed = !briefingCollapsed;
+  document.getElementById('briefing-content').style.display = briefingCollapsed ? 'none' : 'block';
+  document.getElementById('briefing-collapse-btn').textContent = briefingCollapsed ? 'Show' : 'Hide';
+}
+
+function formatBriefing(text) {
+  if (!text || typeof text !== 'string') return '<p>No briefing content received.</p>';
+  var result = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  result = result.split('\n\n').join('</p><p>');
+  result = result.split('\n').join('<br>');
+  return '<p>' + result + '</p>';
+}
+
+function populateBestSpots(briefingText) {
+  var el = document.getElementById('best-spots-content');
+  if (!el) return;
+  // Find WHERE TO FISH section
+  var sections = briefingText.split('**');
+  var whereIdx = -1;
+  for (var i = 0; i < sections.length; i++) {
+    if (sections[i].toUpperCase().indexOf('WHERE TO FISH') >= 0) { whereIdx = i; break; }
+  }
+  var text = '';
+  if (whereIdx >= 0 && whereIdx + 1 < sections.length) {
+    text = sections[whereIdx + 1].trim();
+    // Cut off at next bold header
+    var nextHeader = text.search(/\n\*\*[A-Z]/);
+    if (nextHeader > 0) text = text.slice(0, nextHeader);
+  }
+  if (!text) {
+    // Fallback: TOP RECOMMENDATION
+    var topIdx = -1;
+    for (var j = 0; j < sections.length; j++) {
+      if (sections[j].toUpperCase().indexOf('TOP RECOMMENDATION') >= 0) { topIdx = j; break; }
+    }
+    if (topIdx >= 0) text = sections[topIdx + 1] ? sections[topIdx + 1].trim() : '';
+  }
+  if (!text) return;
+  // Parse numbered spots
+  var lines = text.split('\n').filter(function(l){return l.trim();});
+  var html = '';
+  lines.forEach(function(line) {
+    var m = line.match(/^(\d+)\.\s*(.+?):\s*(.+)/);
+    if (m) {
+      var name = m[2].replace(/\*+/g,'').trim();
+      var desc = m[3].trim();
+      var isGood = /good|great|best|prime|solid|active|biting|producing|recommend/i.test(desc);
+      var isBad = /avoid|no-go|stay away|closed|too rough|not worth/i.test(desc);
+      var dot = isBad ? '🔴' : isGood ? '🟢' : '🟡';
+      html += '<div style="padding:8px 0;border-bottom:0.5px solid rgba(0,0,0,0.08);">';
+      html += '<div style="font-weight:500;margin-bottom:3px;">'+dot+' <strong>'+name+'</strong></div>';
+      html += '<div style="color:#555;font-size:12px;line-height:1.6;">'+desc+'</div></div>';
+    } else if (line.trim().length > 20) {
+      html += '<div style="padding:6px 0;font-size:13px;color:#555;line-height:1.6;">'+line.replace(/\*+/g,'')+'</div>';
+    }
+  });
+  if (html) {
+    el.innerHTML = html;
+    // Auto-expand
+    var body = document.getElementById('bs');
+    var icon = document.getElementById('bs-icon');
+    if (body) body.classList.remove('hidden');
+    if (icon) icon.textContent = '▼';
+  }
+}
+
+async function getBriefing() {
+  var btn = document.getElementById('briefing-btn');
+  var content = document.getElementById('briefing-content');
+  btn.disabled = true; btn.textContent = 'Generating...';
+  content.innerHTML = '<span class="sp"></span> Pulling live conditions and recent reports — about 15 seconds...';
+  try {
+    var resp = await fetch('/briefing', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({species:currentSpecies,location:currentLocation})});
+    var data = await resp.json();
+    if (data.error) {
+      content.innerHTML = '<div class="err-box">Error: '+data.error+'</div>';
+    } else if (!data.briefing) {
+      content.innerHTML = '<div class="err-box">No briefing content returned. Try again.</div>';
+    } else {
+      var ts = data.generated_at ? new Date(data.generated_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : '';
+      content.innerHTML = '<div style="font-size:11px;color:#888;margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em;">Generated '+ts+' · All species</div><div class="briefing-body">'+formatBriefing(data.briefing)+'</div>';
+      document.getElementById('briefing-collapse-btn').style.display = 'inline-block';
+      briefingCollapsed = false; content.style.display = 'block';
+      populateBestSpots(data.briefing);
+    }
+  } catch(e) { content.innerHTML = '<div class="err-box">Could not reach server: '+e.message+'</div>'; }
+  btn.disabled = false; btn.textContent = 'Refresh briefing';
+}
+
+// ── Main refresh ──────────────────────────────────────────────────────────────
+async function refreshAll() {
+  document.getElementById('vdate').textContent = todayStr();
+  var vb = document.getElementById('vbadge');
+  vb.innerHTML = '<span class="sp"></span> Loading'; vb.className = '';
+  vb.style.cssText = 'display:inline-block;font-size:24px;font-weight:500;padding:10px 32px;border-radius:12px;background:#f0efe8;color:#888;';
+  document.getElementById('vreason').textContent = 'Fetching live conditions...';
+  ['m-wind','m-wdir','m-swell','m-tide'].forEach(function(id){document.getElementById(id).textContent='—';});
+  document.getElementById('windows').innerHTML = '<span class="sp"></span> Loading...';
+  var tideSum = document.getElementById('tide-summary');
+  if (tideSum) tideSum.textContent = '';
+  document.getElementById('location-toggle-card').style.display = SPECIES_WITH_BAY.includes(currentSpecies) ? 'block' : 'none';
+
+  try {
+    var results = await Promise.all([fetch('/conditions'), loadReports()]);
+    var cond = await results[0].json();
+    windSpeed = cond.wind_kts != null ? cond.wind_kts : null;
+    windDir = cond.wind_dir || null;
+    swellHt = cond.swell_ft != null ? cond.swell_ft : null;
+    cachedTideEvents = cond.events || [];
+    document.getElementById('m-wind').textContent = windSpeed !== null ? windSpeed+' kts' : '—';
+    document.getElementById('m-wdir').textContent = windDir || '—';
+    document.getElementById('m-swell').textContent = swellHt !== null ? swellHt+' ft' : '—';
+    document.getElementById('m-tide').textContent = cond.tide_now_ft != null ? (+cond.tide_now_ft).toFixed(1)+' ft'+(cond.tide_now_label?' ('+cond.tide_now_label+')':'') : '—';
+    // NWS warnings
+    var warnEl = document.getElementById('nws-warnings');
+    var warnings = cond.warnings || [];
+    if (warnings.length && warnEl) {
+      var html = '';
+      warnings.forEach(function(w) {
+        if (w.nogo) {
+          html += '<div style="background:#ffebee;border:0.5px solid #e53935;border-radius:8px;padding:8px 12px;font-size:13px;color:#b71c1c;margin-bottom:6px;">⛔ NWS '+w.label+' in effect — NO-GO.</div>';
+          windSpeed = Math.max(windSpeed||0, 35);
+        } else {
+          html += '<div style="background:#fff8e1;border:0.5px solid #f9a825;border-radius:8px;padding:8px 12px;font-size:13px;color:#7a5c00;margin-bottom:6px;">⚠️ NWS '+w.label+' in effect.</div>';
+        }
+      });
+      warnEl.innerHTML = html; warnEl.style.display = 'block';
+    } else if (warnEl) warnEl.style.display = 'none';
+    var forecastText = cond.forecast_summary || '';
+    if (forecastText.indexOf('GoogleAnalytics') >= 0 || forecastText.indexOf('window[') >= 0) forecastText = '';
+    if (forecastText && tideSum) tideSum.textContent = forecastText;
+    renderCurrentChart(cond);
+    renderCurrents(cond);
+    loadMultiTides();
+  } catch(e) {
+    document.getElementById('vbadge').textContent = 'Error';
+    document.getElementById('vreason').textContent = 'Could not reach server: '+e.message;
+    windSpeed=null; windDir=null; swellHt=null; cachedTideEvents=[];
+  }
+  updateSpeciesContent();
+}
+
+document.getElementById('vdate').textContent = todayStr();
+refreshAll();
+loadForecast();
+</script>
+</body>
+</html>
